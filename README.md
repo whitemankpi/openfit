@@ -1,6 +1,14 @@
-# OpenFit
+<p align="center">
+  <img src="public/app-icon.png" alt="OpenFit app icon" width="96">
+</p>
+
+<h1 align="center">OpenFit</h1>
 
 OpenFit is a private, desktop-first Electron dashboard for Google Fitbit Air and other Fitbit devices. Its adaptive interface prioritizes a small set of useful insights and only displays views, metrics, and navigation when Google Health returns real data.
+
+<p align="center">
+  <img src="public/openfit-screenshot.webp" alt="OpenFit desktop dashboard screenshot" width="960">
+</p>
 
 The renderer uses React, shadcn/Radix, Tailwind CSS v4, assistant-ui, Inter Variable, JetBrains Mono, and Nucleo Essential Outline icons.
 
