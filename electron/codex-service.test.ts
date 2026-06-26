@@ -76,7 +76,7 @@ describe('Codex app-server service', () => {
     const service = createCodexService({
       spawn,
       resolveBinary: () => '/mock/Codex.app/Contents/Resources/codex',
-      cwd: '/mock/pulseboard',
+      cwd: '/mock/openfit',
       requestTimeoutMs: 250,
     })
 
@@ -88,12 +88,12 @@ describe('Codex app-server service', () => {
     expect(spawn).toHaveBeenCalledWith(
       '/mock/Codex.app/Contents/Resources/codex',
       ['app-server'],
-      expect.objectContaining({ cwd: '/mock/pulseboard', stdio: ['pipe', 'pipe', 'pipe'] }),
+      expect.objectContaining({ cwd: '/mock/openfit', stdio: ['pipe', 'pipe', 'pipe'] }),
     )
     expect(child.messages[0]).toMatchObject({
       method: 'initialize',
       params: {
-        clientInfo: { name: 'pulseboard_desktop', title: 'Pulseboard', version: '1.0.0' },
+        clientInfo: { name: 'openfit_desktop', title: 'OpenFit', version: '1.0.0' },
         capabilities: { experimentalApi: false, requestAttestation: false },
       },
     })
@@ -102,7 +102,7 @@ describe('Codex app-server service', () => {
     expect(child.messages[2]).toMatchObject({
       method: 'thread/start',
       params: {
-        cwd: '/mock/pulseboard',
+        cwd: '/mock/openfit',
         approvalPolicy: 'never',
         sandbox: 'read-only',
         ephemeral: true,
@@ -161,7 +161,7 @@ describe('Codex app-server service', () => {
     expect(turnRequest?.params?.input).toEqual([
       {
         type: 'text',
-        text: '<PULSEBOARD_HEALTH_CONTEXT>\n{"date":"2026-06-23","sleepMinutes":420,"missing":null}\n</PULSEBOARD_HEALTH_CONTEXT>',
+        text: '<OPENFIT_HEALTH_CONTEXT>\n{"date":"2026-06-23","sleepMinutes":420,"missing":null}\n</OPENFIT_HEALTH_CONTEXT>',
         text_elements: [],
       },
       { type: 'text', text: 'Come ho dormito?', text_elements: [] },

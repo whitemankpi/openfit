@@ -10,7 +10,7 @@ const available = (value) => value !== null && value !== undefined && value !== 
 const countValues = (items, selector) => array(items).filter((item) => available(selector(item))).length
 
 // When Electron is launched with this standalone script, it otherwise uses
-// the generic "Electron" identity and cannot decrypt Pulseboard's safeStorage.
+// the generic "Electron" identity and cannot decrypt OpenFit's safeStorage.
 app.setName('pulseboard-fitbit-desktop')
 
 app.whenReady().then(() => {

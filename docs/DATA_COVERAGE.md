@@ -29,7 +29,7 @@ Fitbit Air supporta, in funzione di disponibilità regionale e account: frequenz
 ## Limiti non aggirabili
 
 - I dati appaiono solo dopo la sincronizzazione con l’app mobile; non esiste streaming BLE pubblico verso app desktop.
-- Readiness Score, Cardio Load, Sleep Score, Stress Score e coaching proprietario non sono tutti esposti come valori Google/Fitbit. Pulseboard mostra misure di base e insight locali, non finge di replicare punteggi non disponibili.
+- Readiness Score, Cardio Load, Sleep Score, Stress Score e coaching proprietario non sono tutti esposti come valori Google/Fitbit. OpenFit mostra misure di base e insight locali, non finge di replicare punteggi non disponibili.
 - La posizione GPS viene richiesta soltanto per arricchire allenamenti compatibili; non è ancora renderizzata su mappa.
 - Disponibilità e granularità dipendono da modello, regione, firmware, piano e consenso OAuth.
 

@@ -24,7 +24,7 @@ describe('health assistant context', () => {
 
 describe('assistant navigation directives', () => {
   it('parses and removes a valid directive', () => {
-    const text = 'Apro il sonno di ieri.\n<!-- pulseboard:navigate {"page":"sleep","date":"2026-06-22"} -->'
+    const text = 'Apro il sonno di ieri.\n<!-- openfit:navigate {"page":"sleep","date":"2026-06-22"} -->'
     expect(parseAssistantNavigation(text)).toEqual({ page: 'sleep', date: '2026-06-22' })
     expect(stripAssistantNavigation(text)).toBe('Apro il sonno di ieri.')
     expect(visibleAssistantText(text)).toBe('Apro il sonno di ieri.')
@@ -32,8 +32,8 @@ describe('assistant navigation directives', () => {
   })
 
   it('ignores invalid pages and malformed JSON', () => {
-    expect(parseAssistantNavigation('<!-- pulseboard:navigate {"page":"admin"} -->')).toBeNull()
-    expect(parseAssistantNavigation('<!-- pulseboard:navigate {"date":"2026-02-31"} -->')).toBeNull()
-    expect(parseAssistantNavigation('<!-- pulseboard:navigate nope -->')).toBeNull()
+    expect(parseAssistantNavigation('<!-- openfit:navigate {"page":"admin"} -->')).toBeNull()
+    expect(parseAssistantNavigation('<!-- openfit:navigate {"date":"2026-02-31"} -->')).toBeNull()
+    expect(parseAssistantNavigation('<!-- openfit:navigate nope -->')).toBeNull()
   })
 })

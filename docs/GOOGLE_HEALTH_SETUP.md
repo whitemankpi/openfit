@@ -1,6 +1,6 @@
-# Guida completa: collegare Pulseboard a Google Health
+# Guida completa: collegare OpenFit a Google Health
 
-Questa guida ripercorre, passo per passo, la configurazione eseguita per collegare Pulseboard ai dati di Fitbit tramite Google Health API. È aggiornata al 22 giugno 2026.
+Questa guida ripercorre, passo per passo, la configurazione eseguita per collegare OpenFit ai dati di Fitbit tramite Google Health API. È aggiornata al 22 giugno 2026.
 
 ## Prima di iniziare
 
@@ -8,30 +8,30 @@ Servono:
 
 - l’account Google utilizzato nell’app Fitbit;
 - accesso a [Google Cloud Console](https://console.cloud.google.com/);
-- Pulseboard avviato con `npm run dev` oppure tramite l’app desktop;
+- OpenFit avviato con `npm run dev` oppure tramite l’app desktop;
 - Fitbit Air già associato e sincronizzato con l’app Fitbit sul telefono.
 
 Il flusso dei dati è:
 
 ```text
-Fitbit Air → app Fitbit sul telefono → Google Health API → Pulseboard
+Fitbit Air → app Fitbit sul telefono → Google Health API → OpenFit
 ```
 
-Pulseboard non effettua il primo pairing Bluetooth e non sostituisce la sincronizzazione tra il braccialetto e il telefono.
+OpenFit non effettua il primo pairing Bluetooth e non sostituisce la sincronizzazione tra il braccialetto e il telefono.
 
 ## 1. Creare un progetto Google Cloud
 
 1. Apri [Crea progetto Google Cloud](https://console.cloud.google.com/projectcreate).
-2. In **Nome progetto** inserisci `Pulseboard`.
+2. In **Nome progetto** inserisci `OpenFit`.
 3. Per un account personale lascia **Organizzazione** su `Nessuna organizzazione`.
 4. Premi **Crea**.
-5. Attendi il completamento e seleziona `Pulseboard` dal selettore dei progetti nella barra superiore.
+5. Attendi il completamento e seleziona `OpenFit` dal selettore dei progetti nella barra superiore.
 
-Da questo momento verifica sempre che il progetto selezionato sia **Pulseboard**. API, consenso OAuth e client devono appartenere allo stesso progetto.
+Da questo momento verifica sempre che il progetto selezionato sia **OpenFit**. API, consenso OAuth e client devono appartenere allo stesso progetto.
 
 ## 2. Abilitare Google Health API
 
-1. Con il progetto Pulseboard selezionato, apri [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
+1. Con il progetto OpenFit selezionato, apri [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
 2. Premi **Abilita**.
 3. Attendi finché compare **API abilitata** oppure il pulsante **Gestisci**.
 
@@ -40,10 +40,10 @@ Se compare già **Gestisci**, l’API è abilitata e puoi continuare.
 ## 3. Configurare Google Auth Platform
 
 1. Apri [Google Auth Platform → Panoramica](https://console.cloud.google.com/auth/overview).
-2. Controlla nuovamente che il progetto sia Pulseboard.
+2. Controlla nuovamente che il progetto sia OpenFit.
 3. Premi **Inizia**.
 4. Nelle informazioni dell’app inserisci:
-   - **Nome applicazione:** `Pulseboard`;
+   - **Nome applicazione:** `OpenFit`;
    - **Email assistenza utenti:** il tuo indirizzo Google.
 5. Come pubblico scegli **Esterno**.
 6. In **Informazioni di contatto** inserisci la tua email.
@@ -83,14 +83,14 @@ https://www.googleapis.com/auth/googlehealth.settings.readonly
 https://www.googleapis.com/auth/googlehealth.sleep.readonly
 ```
 
-Non selezionare gli scope di scrittura. Pulseboard richiede inoltre gli scope standard `openid` e `profile` per mostrare nome e avatar.
+Non selezionare gli scope di scrittura. OpenFit richiede inoltre gli scope standard `openid` e `profile` per mostrare nome e avatar.
 
 ## 6. Creare il client OAuth
 
 1. Apri [Google Auth Platform → Client](https://console.cloud.google.com/auth/clients).
 2. Premi **Crea client**.
 3. Come tipo di applicazione scegli **Applicazione web**.
-4. Inserisci come nome `Pulseboard Desktop`.
+4. Inserisci come nome `OpenFit Desktop`.
 5. Lascia vuote le **Origini JavaScript autorizzate**.
 6. In **URI di reindirizzamento autorizzati** aggiungi esattamente:
 
@@ -101,13 +101,13 @@ Non selezionare gli scope di scrittura. Pulseboard richiede inoltre gli scope st
 7. Premi **Crea**.
 8. Conserva il **Client ID** e il **Client Secret** mostrati da Google.
 
-Non pubblicare, condividere o inserire queste credenziali nel repository. Client Secret, token e cache vengono salvati da Pulseboard tramite l’archivio cifrato del sistema operativo.
+Non pubblicare, condividere o inserire queste credenziali nel repository. Client Secret, token e cache vengono salvati da OpenFit tramite l’archivio cifrato del sistema operativo.
 
 ## 7. Perché la callback è locale
 
-`127.0.0.1` identifica esclusivamente il computer sul quale è aperto Pulseboard. Non è un sito pubblico e non può essere raggiunto da Internet.
+`127.0.0.1` identifica esclusivamente il computer sul quale è aperto OpenFit. Non è un sito pubblico e non può essere raggiunto da Internet.
 
-Durante il collegamento Pulseboard:
+Durante il collegamento OpenFit:
 
 1. apre temporaneamente un server locale sulla porta `42813`;
 2. apre il browser di sistema per il consenso Google;
@@ -117,9 +117,9 @@ Durante il collegamento Pulseboard:
 
 La callback deve corrispondere carattere per carattere a quella registrata su Google Cloud, inclusi protocollo, indirizzo IP, porta e percorso.
 
-## 8. Collegare Pulseboard
+## 8. Collegare OpenFit
 
-1. Avvia Pulseboard:
+1. Avvia OpenFit:
 
    ```bash
    npm run dev
@@ -138,13 +138,13 @@ La callback deve corrispondere carattere per carattere a quella registrata su Go
 7. Premi **Salva e collega**.
 8. Nel browser seleziona l’account Google aggiunto come utente di test.
 9. Accetta gli accessi richiesti.
-10. Dopo la conferma torna a Pulseboard: la prima sincronizzazione parte automaticamente.
+10. Dopo la conferma torna a OpenFit: la prima sincronizzazione parte automaticamente.
 
 ## 9. Verifica finale
 
 La configurazione è riuscita quando:
 
-- Pulseboard mostra `Google Health` invece di `Modalità demo`;
+- OpenFit mostra `Google Health` invece di `Modalità demo`;
 - compare una data di ultima sincronizzazione;
 - la pagina Dispositivi mostra Fitbit Air o il tracker associato;
 - passi, frequenza cardiaca o sonno contengono dati reali;
@@ -180,7 +180,7 @@ Non usare `localhost`, non omettere `/oauth/callback` e non aggiungere spazi o u
 
 ### `invalid_client`
 
-- Ricopia Client ID e Client Secret dallo stesso client `Pulseboard Desktop`.
+- Ricopia Client ID e Client Secret dallo stesso client `OpenFit Desktop`.
 - Assicurati di non aver copiato spazi iniziali o finali.
 - Non mescolare credenziali appartenenti a progetti differenti.
 
@@ -190,11 +190,11 @@ Apri la pagina della Google Health API e verifica che compaia **Gestisci**. L’
 
 ### La porta 42813 è già in uso
 
-Chiudi eventuali altre finestre o processi Pulseboard e riprova. Soltanto una procedura OAuth può usare quella porta alla volta.
+Chiudi eventuali altre finestre o processi OpenFit e riprova. Soltanto una procedura OAuth può usare quella porta alla volta.
 
-### Il browser autorizza l’app ma Pulseboard non riceve la callback
+### Il browser autorizza l’app ma OpenFit non riceve la callback
 
-- lascia Pulseboard aperto durante tutto il consenso;
+- lascia OpenFit aperto durante tutto il consenso;
 - disattiva temporaneamente soltanto eventuali regole locali che bloccano `127.0.0.1`;
 - verifica che VPN o proxy non intercettino gli indirizzi loopback;
 - riprova senza modificare la callback.
@@ -203,10 +203,10 @@ Chiudi eventuali altre finestre o processi Pulseboard e riprova. Soltanto una pr
 
 1. Apri l’app Fitbit sul telefono.
 2. Attendi la sincronizzazione di Fitbit Air.
-3. Torna a Pulseboard e premi **Sincronizza**.
+3. Torna a OpenFit e premi **Sincronizza**.
 4. Controlla nella pagina **Dati** la copertura effettiva delle sorgenti.
 
-ECG, SpO₂, temperatura, HRV e notifiche di ritmo irregolare possono non essere disponibili per tutti i dispositivi, account o Paesi. Pulseboard nasconde automaticamente le sezioni senza dati.
+ECG, SpO₂, temperatura, HRV e notifiche di ritmo irregolare possono non essere disponibili per tutti i dispositivi, account o Paesi. OpenFit nasconde automaticamente le sezioni senza dati.
 
 ### Il collegamento smette di funzionare dopo sette giorni
 
@@ -214,15 +214,15 @@ In modalità Google OAuth `Testing`, i refresh token scadono normalmente dopo se
 
 ## Checklist rapida
 
-- [ ] Progetto `Pulseboard` creato e selezionato
+- [ ] Progetto `OpenFit` creato e selezionato
 - [ ] Google Health API abilitata
 - [ ] Google Auth Platform configurata
 - [ ] Pubblico impostato su `Esterno`
 - [ ] Account Fitbit aggiunto come utente di test
 - [ ] Scope Google Health `.readonly` aggiunti
-- [ ] Client `Pulseboard Desktop` creato come applicazione web
+- [ ] Client `OpenFit Desktop` creato come applicazione web
 - [ ] Callback locale registrata esattamente
-- [ ] Client ID e Client Secret inseriti in Pulseboard
+- [ ] Client ID e Client Secret inseriti in OpenFit
 - [ ] Consenso completato con l’account corretto
 - [ ] Prima sincronizzazione conclusa
 

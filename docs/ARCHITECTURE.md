@@ -6,7 +6,7 @@
 - Google Health API v4 come provider principale, Fitbit Web API come fallback isolato.
 - Nessun token o secret nel renderer.
 - Consenso parziale e sensori assenti non devono bloccare la dashboard.
-- Archivio health cifrato per singolo giorno e nessun upload verso servizi Pulseboard; i giorni conclusi vengono letti localmente senza nuove richieste al provider. Se `safeStorage` non è disponibile o Linux seleziona il backend non cifrato `basic_text`, il salvataggio fallisce in modo esplicito.
+- Archivio health cifrato per singolo giorno e nessun upload verso servizi OpenFit; i giorni conclusi vengono letti localmente senza nuove richieste al provider. Se `safeStorage` non è disponibile o Linux seleziona il backend non cifrato `basic_text`, il salvataggio fallisce in modo esplicito.
 - Normalizzazione unica, così le viste non conoscono la forma delle API remote.
 - Chat opzionale via Codex app-server: nessuna API key nel progetto e nessun dato health inviato finché l'utente non manda un messaggio.
 
@@ -84,8 +84,8 @@ Il main seleziona l’adapter in base a `config.provider`. La UI riceve sempre l
 2. **Browser di sistema per OAuth.** Nessuna password Google/Fitbit attraversa Electron.
 3. **Dual provider.** È la strategia di migrazione raccomandata da Google; il renderer non contiene branching API.
 4. **Demo first.** Lo sviluppo visuale e i test non richiedono dati salute reali.
-5. **Read-only scopes.** Pulseboard non modifica il profilo sanitario dell’utente.
+5. **Read-only scopes.** OpenFit non modifica il profilo sanitario dell’utente.
 
 ## Nota per una distribuzione pubblica
 
-Il client Google Health documentato è di tipo Web e usa un Client Secret. `safeStorage` lo protegge sul computer, ma un secret distribuito dentro un’app desktop non è un vero segreto globale. Per distribuire Pulseboard a terzi, spostare lo scambio OAuth su un backend minimale, completare la verifica Google e la security review richiesta. La configurazione attuale è appropriata per uso personale e sviluppo.
+Il client Google Health documentato è di tipo Web e usa un Client Secret. `safeStorage` lo protegge sul computer, ma un secret distribuito dentro un’app desktop non è un vero segreto globale. Per distribuire OpenFit a terzi, spostare lo scambio OAuth su un backend minimale, completare la verifica Google e la security review richiesta. La configurazione attuale è appropriata per uso personale e sviluppo.

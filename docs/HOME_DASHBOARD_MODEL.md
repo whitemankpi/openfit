@@ -7,7 +7,7 @@ La home non è un catalogo di metriche. Deve rispondere, in ordine, a quattro do
 3. **Quali dati spiegano il quadro?**
 4. **Dove trovo il dettaglio senza perdere il contesto?**
 
-Pulseboard non genera un punteggio composito proprietario. Ogni sintesi deve essere riconducibile a una misura, a un obiettivo esplicito o a una baseline personale visibile.
+OpenFit non genera un punteggio composito proprietario. Ogni sintesi deve essere riconducibile a una misura, a un obiettivo esplicito o a una baseline personale visibile.
 
 ## Gerarchia delle metriche
 

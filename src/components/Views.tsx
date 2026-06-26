@@ -727,7 +727,7 @@ export function HealthView({ data }: ViewProps) {
       )}
 
       {!hasHealthData(data) && <EmptyValue>No cardiac or physiological data available for this day.</EmptyValue>}
-      <div className="medical-note"><InfoIcon aria-hidden="true" /><p>Look at trends over time, not a single reading. Pulseboard does not provide medical diagnoses.</p></div>
+      <div className="medical-note"><InfoIcon aria-hidden="true" /><p>Look at trends over time, not a single reading. OpenFit does not provide medical diagnoses.</p></div>
     </div>
   )
 }
