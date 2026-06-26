@@ -278,7 +278,7 @@ export default function App() {
 
   const connect = async () => {
     if (!window.fitbit) {
-      setToast({ tone: 'neutral', message: 'Open Pulseboard in the Electron app to connect your health provider.' })
+      setToast({ tone: 'neutral', message: 'Launch OpenFit in the Electron app to connect your health provider.' })
       return
     }
     if (!status.configured) {
@@ -304,7 +304,7 @@ export default function App() {
       setConnecting(true)
       const result = await window.fitbit.connect()
       if (!result.ok) throw new Error(result.message ?? 'Unable to start OAuth.')
-      setToast({ tone: 'neutral', message: 'Authorize Pulseboard in the browser window.' })
+      setToast({ tone: 'neutral', message: 'Authorize OpenFit in the browser window.' })
     } catch (error) {
       setConnecting(false)
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Invalid configuration.' })
@@ -368,7 +368,7 @@ export default function App() {
   return (
     <SidebarProvider className={cn('app-shell', assistantOpen && 'assistant-open')}>
       <div className="window-drag-region" />
-      <PulseboardSidebar
+      <OpenFitSidebar
         items={visibleNav}
         page={page}
         userName={data.profile.displayName}
@@ -510,7 +510,7 @@ export default function App() {
   )
 }
 
-function PulseboardSidebar({
+function OpenFitSidebar({
   items,
   page,
   userName,
@@ -552,12 +552,12 @@ function PulseboardSidebar({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="sidebar-workspace" tooltip="Pulseboard" onClick={() => selectPage('today')}>
+            <SidebarMenuButton size="lg" className="sidebar-workspace" tooltip="OpenFit" onClick={() => selectPage('today')}>
               <span className="sidebar-workspace-mark">
                 <img src="./app-icon.png" alt="" aria-hidden="true" />
               </span>
               <span className="sidebar-workspace-copy">
-                <strong>Pulseboard</strong>
+                <strong>OpenFit</strong>
                 <small>Health dashboard</small>
               </span>
             </SidebarMenuButton>

@@ -5,7 +5,7 @@ export interface AssistantNavigation {
   date?: string
 }
 
-const navigationPattern = /\s*<!--\s*pulseboard:navigate\s+(\{[\s\S]*?\})\s*-->\s*/g
+const navigationPattern = /\s*<!--\s*openfit:navigate\s+(\{[\s\S]*?\})\s*-->\s*/g
 const validPages = new Set<PageId>(['today', 'activity', 'health', 'sleep', 'body', 'devices'])
 
 function validIsoDate(value: string) {
@@ -167,7 +167,7 @@ export function buildHealthAssistantContext(
   })
 
   return JSON.stringify(withoutNulls({
-    schema: 'pulseboard-health-context/v1',
+    schema: 'openfit-health-context/v1',
     generatedAt: new Date().toISOString(),
     source: current.source,
     app: {

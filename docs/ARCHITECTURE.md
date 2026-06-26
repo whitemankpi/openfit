@@ -1,62 +1,62 @@
-# Architettura
+# Architecture
 
-## Obiettivi
+## Goals
 
-- UI desktop veloce e utilizzabile anche senza account tramite dataset demo.
-- Google Health API v4 come provider principale, Fitbit Web API come fallback isolato.
-- Nessun token o secret nel renderer.
-- Consenso parziale e sensori assenti non devono bloccare la dashboard.
-- Archivio health cifrato per singolo giorno e nessun upload verso servizi Pulseboard; i giorni conclusi vengono letti localmente senza nuove richieste al provider. Se `safeStorage` non è disponibile o Linux seleziona il backend non cifrato `basic_text`, il salvataggio fallisce in modo esplicito.
-- Normalizzazione unica, così le viste non conoscono la forma delle API remote.
-- Chat opzionale via Codex app-server: nessuna API key nel progetto e nessun dato health inviato finché l'utente non manda un messaggio.
+- Fast desktop UI that remains useful without an account through demo data.
+- Google Health API v4 as the primary provider, with the legacy Fitbit Web API isolated as a fallback.
+- No tokens or secrets in the renderer.
+- Partial consent and missing sensors must not block the dashboard.
+- Encrypted per-day health archive and no upload to OpenFit services. Completed days are read locally without new provider requests. If `safeStorage` is unavailable, or Linux selects the unencrypted `basic_text` backend, saving fails explicitly.
+- One normalization layer, so views do not depend on remote API shapes.
+- Optional chat through Codex app-server. The project contains no API key, and no health data is sent until the user sends a message.
 
-## Flusso
+## Flow
 
 ```mermaid
 flowchart LR
-    Air["Google Fitbit Air"] -->|BLE proprietario| Mobile["Google Health / Fitbit mobile"]
-    Mobile --> Cloud["Cloud Google Health"]
+    Air["Google Fitbit Air"] -->|Proprietary BLE| Mobile["Google Health / Fitbit mobile"]
+    Mobile --> Cloud["Google Health cloud"]
     Cloud -->|OAuth 2.0 + REST v4| GHA["Google Health adapter"]
-    Legacy["Fitbit Web API legacy"] --> FBA["Legacy adapter"]
-    GHA --> Contract["RawFitbitPayload normalizzato"]
+    Legacy["Legacy Fitbit Web API"] --> FBA["Legacy adapter"]
+    GHA --> Contract["Normalized RawFitbitPayload"]
     FBA --> Contract
     Contract --> Main["Electron main"]
-    Main -->|safeStorage| Cache["Cache locale cifrata"]
+    Main -->|safeStorage| Cache["Encrypted local cache"]
     Main -->|IPC allowlist| Preload["contextBridge"]
     Preload --> Renderer["React renderer"]
-    Renderer -->|contesto health compatto su richiesta| Preload
-    Preload -->|IPC chat| Main
-    Main -->|stdio JSONL, sandbox read-only| Codex["Codex app-server"]
+    Renderer -->|Compact health context on request| Preload
+    Preload -->|Chat IPC| Main
+    Main -->|JSONL stdio, read-only sandbox| Codex["Codex app-server"]
 ```
 
-## Confini di sicurezza
+## Security Boundaries
 
-### Processo main
+### Main Process
 
-È l’unico autorizzato a:
+The main process is the only process allowed to:
 
-- aprire il server loopback OAuth;
-- conoscere Client Secret, access token e refresh token;
-- chiamare `health.googleapis.com` e `api.fitbit.com`;
-- leggere e scrivere cache e credenziali;
-- aprire URL esterni ed esportare file su richiesta esplicita.
-- avviare Codex app-server e inoltrare esclusivamente il contesto health compatto preparato per il turno.
+- open the OAuth loopback server;
+- know the Client Secret, access token, and refresh token;
+- call `health.googleapis.com` and `api.fitbit.com`;
+- read and write cache and credentials;
+- open external URLs and export files only after explicit user action;
+- start Codex app-server and forward only the compact health context prepared for the turn.
 
 ### Preload
 
-Espone una allowlist di operazioni con `contextBridge`. Non espone Node, filesystem, `ipcRenderer` generico o token. Gli eventi chat sono limitati a stato, delta testuali, completamento, errore e cancellazione.
+The preload exposes an operation allowlist through `contextBridge`. It does not expose Node, the filesystem, generic `ipcRenderer`, or tokens. Chat events are limited to status, text deltas, completion, errors, and cancellation.
 
 ### Renderer
 
-Funziona con `nodeIntegration: false`, `contextIsolation: true` e sandbox. Riceve stato pubblico e payload salute privi di credenziali; normalizza e compatta le sole metriche necessarie prima di un turno Codex.
+The renderer runs with `nodeIntegration: false`, `contextIsolation: true`, and sandboxing enabled. It receives public status and credential-free health payloads, then normalizes and compacts only the metrics needed before a Codex turn.
 
-### Codex bridge
+### Codex Bridge
 
-`codex-service.cjs` risolve l'eseguibile installato da Codex Desktop, apre `codex app-server` su stdio e riusa l'autenticazione locale. Ogni thread usa `read-only`, `approvalPolicy: never` e rete disabilitata per i tool. Richieste di shell, patch, permessi, input o tool vengono negate dal client. Le credenziali OAuth Fitbit/Google non entrano mai nel contesto del modello.
+`codex-service.cjs` resolves the Codex Desktop executable, starts `codex app-server` over stdio, and reuses the local authentication. Every thread uses `read-only`, `approvalPolicy: never`, and disabled network access for tools. Shell, patch, permission, input, and tool requests are denied by the client. Fitbit and Google OAuth credentials never enter the model context.
 
-## Provider contract
+## Provider Contract
 
-Ogni adapter implementa:
+Each adapter implements:
 
 ```text
 createPkce()
@@ -67,25 +67,25 @@ revokeToken(token)
 syncData(accessToken, date, onProgress)
 ```
 
-Il main seleziona l’adapter in base a `config.provider`. La UI riceve sempre lo stesso contratto `RawFitbitPayload`, poi `normalizeFitbitData` lo converte in `DashboardData`.
+The main process selects the adapter from `config.provider`. The UI always receives the same `RawFitbitPayload` contract, then `normalizeFitbitData` converts it into `DashboardData`.
 
-## Resilienza
+## Resilience
 
-- Le letture API sono indipendenti: una risposta 403/404 per ECG o temperatura non annulla passi e sonno.
-- Ogni errore viene associato alla sorgente e mostrato nella pagina Dispositivi.
-- Google Health viene limitato a meno di 5 richieste al secondo; il `429` riceve un retry con backoff.
-- Il token viene aggiornato prima della scadenza; i refresh token ruotati vengono salvati atomicamente.
-- Le scritture cifrate passano da file temporaneo + rename per evitare cache parziali.
-- Una sync quasi interamente fallita non sostituisce l’ultima cache valida e le sync concorrenti vengono serializzate.
+- API reads are independent. A 403 or 404 response for ECG or temperature does not cancel steps and sleep.
+- Each error is tied to its source and shown on the Devices page.
+- Google Health is limited to fewer than five requests per second. `429` responses receive a retry with backoff.
+- The token is refreshed before expiry. Rotated refresh tokens are saved atomically.
+- Encrypted writes use a temporary file plus rename to avoid partial caches.
+- A mostly failed sync does not replace the latest valid cache, and concurrent syncs are serialized.
 
-## Decisioni deliberate
+## Deliberate Decisions
 
-1. **Niente BLE reverse-engineered.** Non è un’interfaccia supportata e renderebbe pairing e dati fragili o insicuri.
-2. **Browser di sistema per OAuth.** Nessuna password Google/Fitbit attraversa Electron.
-3. **Dual provider.** È la strategia di migrazione raccomandata da Google; il renderer non contiene branching API.
-4. **Demo first.** Lo sviluppo visuale e i test non richiedono dati salute reali.
-5. **Read-only scopes.** Pulseboard non modifica il profilo sanitario dell’utente.
+1. **No reverse-engineered BLE.** It is not a supported interface and would make pairing and data access fragile or unsafe.
+2. **System browser for OAuth.** No Google or Fitbit password passes through Electron.
+3. **Dual provider.** This matches Google's recommended migration strategy, and the renderer does not contain API branching.
+4. **Demo first.** Visual development and tests do not require real health data.
+5. **Read-only scopes.** OpenFit does not modify the user's health profile.
 
-## Nota per una distribuzione pubblica
+## Public Distribution Note
 
-Il client Google Health documentato è di tipo Web e usa un Client Secret. `safeStorage` lo protegge sul computer, ma un secret distribuito dentro un’app desktop non è un vero segreto globale. Per distribuire Pulseboard a terzi, spostare lo scambio OAuth su un backend minimale, completare la verifica Google e la security review richiesta. La configurazione attuale è appropriata per uso personale e sviluppo.
+The documented Google Health client is a Web client and uses a Client Secret. `safeStorage` protects it on the user's computer, but a secret distributed inside a desktop app is not a true global secret. To distribute OpenFit to third parties, move the OAuth exchange to a minimal backend, complete Google verification, and complete the required security review. The current setup is appropriate for personal use and development.

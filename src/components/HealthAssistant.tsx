@@ -124,7 +124,7 @@ export function HealthAssistant({
   const modelAdapter = useMemo<ChatModelAdapter>(() => ({
     async *run({ messages, abortSignal }) {
       const bridge = window.healthAssistant
-      if (!bridge) throw new Error('Open Pulseboard in the desktop app to use the health assistant.')
+      if (!bridge) throw new Error('Launch OpenFit in the desktop app to use the health assistant.')
 
       const prompt = messageText(messages.at(-1))
       if (!prompt) throw new Error('Write a question before sending it.')

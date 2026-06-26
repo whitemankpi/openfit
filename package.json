@@ -1,11 +1,11 @@
 {
-  "name": "pulseboard-fitbit-desktop",
+  "name": "openfit",
   "version": "1.0.0",
-  "description": "A private, desktop-first Fitbit dashboard built with Electron.",
+  "description": "A private, desktop-first health dashboard built with Electron.",
   "private": true,
   "main": "electron/main.cjs",
   "type": "module",
-  "author": "Pulseboard",
+  "author": "OpenFit",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22",
@@ -58,8 +58,8 @@
     "wait-on": "9.0.10"
   },
   "build": {
-    "appId": "com.pulseboard.fitbit",
-    "productName": "Pulseboard",
+    "appId": "com.exastudio.openfit",
+    "productName": "OpenFit",
     "icon": "build/icon.png",
     "files": [
       "dist/**/*",

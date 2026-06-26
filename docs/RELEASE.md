@@ -1,21 +1,21 @@
-# Release desktop
+# Desktop Release
 
-## Stato del pacchetto locale
+## Local Package Status
 
-`npm run dist` produce DMG e ZIP macOS pronti per test locale. Se non è installata un’identità **Developer ID Application**, electron-builder genera intenzionalmente un artefatto non firmato: è adatto a sviluppo e uso personale, non alla distribuzione pubblica.
+`npm run dist` produces macOS DMG and ZIP artifacts that are ready for local testing. If a **Developer ID Application** identity is not installed, electron-builder intentionally creates an unsigned artifact. That is suitable for development and personal use, not public distribution.
 
-## Checklist macOS pubblica
+## Public macOS Checklist
 
-1. Iscriversi all’Apple Developer Program e installare un certificato Developer ID Application nel Keychain della macchina CI.
-2. Configurare electron-builder/CI con il certificato e la password tramite secret, mai nel repository.
-3. Configurare la notarizzazione Apple con credenziali App Store Connect conservate nei secret CI.
-4. Eseguire `npm run check`, `npm audit --omit=dev` e `npm run dist` su un runner macOS pulito.
-5. Verificare firma, hardened runtime, notarizzazione e Gatekeeper sul DMG finale.
-6. Pubblicare checksum SHA-256 e conservare gli artefatti di build immutabili.
+1. Join the Apple Developer Program and install a Developer ID Application certificate in the CI machine keychain.
+2. Configure electron-builder or CI with the certificate and password through secrets, never in the repository.
+3. Configure Apple notarization with App Store Connect credentials stored in CI secrets.
+4. Run `npm run check`, `npm audit --omit=dev`, and `npm run dist` on a clean macOS runner.
+5. Verify signature, hardened runtime, notarization, and Gatekeeper on the final DMG.
+6. Publish SHA-256 checksums and keep immutable build artifacts.
 
-## Altre piattaforme
+## Other Platforms
 
-- Windows: firmare l’installer NSIS con un certificato code-signing e validare SmartScreen.
-- Linux: pubblicare AppImage/DEB con checksum e, se distribuiti tramite repository, firmare il repository.
+- Windows: sign the NSIS installer with a code-signing certificate and validate SmartScreen behavior.
+- Linux: publish AppImage and DEB artifacts with checksums. If distributed through a repository, sign the repository.
 
-La firma del codice non può essere simulata nel sorgente: richiede identità e credenziali appartenenti al distributore.
+Code signing cannot be simulated in source code. It requires identities and credentials owned by the distributor.

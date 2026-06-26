@@ -1,36 +1,36 @@
-# Copertura dati
+# Data Coverage
 
 ## Google Health API v4
 
-| Dominio | Dati letti | Vista |
+| Domain | Data read | View |
 |---|---|---|
-| Account | identità, profilo, timezone, data iscrizione | header / impostazioni |
-| Dispositivo | modello, tipo, batteria, ultimo sync, feature hardware | Dispositivi |
-| Attività | passi, distanza, piani, calorie, minuti attivi, sedentari, Active Zone Minutes | Oggi / Attività |
-| Intraday | passi e battito dettagliati | Oggi / Attività / Salute |
-| Allenamenti | tipo, durata, distanza, calorie, FC media, zone | Attività |
-| Cuore | frequenza, resting HR, HRV, zone, ECG dove supportato | Salute |
-| Respirazione | frequenza respiratoria notturna | Salute |
-| Ossigeno | SpO₂ giornaliera e campioni supportati | Salute |
-| Temperatura | derivazioni cutanee notturne e temperatura corporea | Salute |
-| Ritmo irregolare | profilo IRN e notifiche | Salute / export |
-| Metabolico | glicemia registrata | Salute / export |
-| Cardio fitness | VO₂ max giornaliero e da corsa | Salute |
-| Sonno | sessioni, fasi, riepilogo ed efficienza | Sonno |
-| Corpo | peso e percentuale di grasso | Corpo |
-| Nutrizione | calorie registrate e idratazione | Corpo |
+| Account | identity, profile, timezone, join date | header / settings |
+| Device | model, type, battery, last sync, hardware features | Devices |
+| Activity | steps, distance, floors, calories, active minutes, sedentary minutes, Active Zone Minutes | Today / Activity |
+| Intraday | detailed steps and heart rate | Today / Activity / Health |
+| Workouts | type, duration, distance, calories, average HR, zones | Activity |
+| Heart | heart rate, resting HR, HRV, zones, ECG where supported | Health |
+| Breathing | nightly respiratory rate | Health |
+| Oxygen | daily SpO2 and supported samples | Health |
+| Temperature | nightly skin variation and body temperature | Health |
+| Irregular rhythm | IRN profile and notifications | Health / export |
+| Metabolic | logged blood glucose | Health / export |
+| Cardio fitness | daily and running VO2 max | Health |
+| Sleep | sessions, stages, summary, efficiency | Sleep |
+| Body | weight and body fat percentage | Body |
+| Nutrition | logged calories and hydration | Body |
 
-La sync Google esegue letture indipendenti e conserva nel JSON esportato anche payload utili non ancora visualizzati in una vista dedicata. L’interfaccia mostra soltanto metriche effettivamente presenti e adatta automaticamente la navigazione.
+The Google sync performs independent reads and keeps useful payloads in the exported JSON even when they are not yet rendered in a dedicated view. The interface only shows metrics that are actually present and automatically adapts the navigation.
 
 ## Fitbit Air
 
-Fitbit Air supporta, in funzione di disponibilità regionale e account: frequenza cardiaca 24/7, passi, calorie, distanza, Active Zone Minutes, sonno e fasi, SpO₂, HRV, frequenza respiratoria, temperatura cutanea, resting HR e notifiche di ritmo irregolare. Non produce un ECG on-demand: la relativa sezione non viene mostrata se il dato non è disponibile.
+Depending on regional and account availability, Fitbit Air supports 24/7 heart rate, steps, calories, distance, Active Zone Minutes, sleep and sleep stages, SpO2, HRV, respiratory rate, skin temperature, resting HR, and irregular rhythm notifications. It does not produce an on-demand ECG. The related section is hidden when the data is unavailable.
 
-## Limiti non aggirabili
+## Hard Limits
 
-- I dati appaiono solo dopo la sincronizzazione con l’app mobile; non esiste streaming BLE pubblico verso app desktop.
-- Readiness Score, Cardio Load, Sleep Score, Stress Score e coaching proprietario non sono tutti esposti come valori Google/Fitbit. Pulseboard mostra misure di base e insight locali, non finge di replicare punteggi non disponibili.
-- La posizione GPS viene richiesta soltanto per arricchire allenamenti compatibili; non è ancora renderizzata su mappa.
-- Disponibilità e granularità dipendono da modello, regione, firmware, piano e consenso OAuth.
+- Data appears only after synchronization with the mobile app. There is no public BLE stream for desktop apps.
+- Readiness Score, Cardio Load, Sleep Score, Stress Score, and proprietary coaching are not all exposed as Google or Fitbit values. OpenFit shows base measurements and local insights. It does not pretend to reproduce unavailable proprietary scores.
+- GPS location is requested only to enrich compatible workouts. It is not rendered on a map yet.
+- Availability and granularity depend on model, region, firmware, plan, and OAuth consent.
 
-Fonti: [accesso di terze parti e disponibilità](https://developers.google.com/health/data-types), [endpoint](https://developers.google.com/health/endpoints), [paired devices](https://developers.google.com/health/reference/rest/v4/users.pairedDevices).
+Sources: [third-party access and availability](https://developers.google.com/health/data-types), [endpoints](https://developers.google.com/health/endpoints), [paired devices](https://developers.google.com/health/reference/rest/v4/users.pairedDevices).

@@ -122,7 +122,7 @@ export function analyzeHome(data: DashboardData): HomeAnalysis {
       category: 'heart',
       eyebrow: 'Needs attention',
       title: 'An irregular rhythm alert is present in the synced period',
-      body: 'Open Health to view the available data. Pulseboard does not interpret the alert as a diagnosis or assume it belongs to the selected day.',
+      body: 'Open Health to view the available data. OpenFit does not interpret the alert as a diagnosis or assume it belongs to the selected day.',
     }
   } else if (isPartial || isStale) {
     headline = {

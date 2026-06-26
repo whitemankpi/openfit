@@ -1325,7 +1325,7 @@ input:focus-visible,
   .weight-goal-copy { align-items: flex-start; flex-direction: column; gap: 3px; }
 }
 
-/* Docked health assistant: assistant-ui primitives, styled in Pulseboard's quiet system. */
+/* Docked health assistant: assistant-ui primitives, styled in OpenFit's quiet system. */
 .main-area {
   transition: margin-right 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }

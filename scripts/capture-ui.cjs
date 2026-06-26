@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
     backgroundColor: '#080c11',
     webPreferences: { sandbox: true, contextIsolation: true },
   })
-  await window.loadURL(process.env.PULSEBOARD_CAPTURE_URL || 'http://127.0.0.1:5173/')
+  await window.loadURL(process.env.OPENFIT_CAPTURE_URL || 'http://127.0.0.1:5173/')
   await wait(1200)
 
   async function capture(name) {
@@ -110,7 +110,7 @@ app.whenReady().then(async () => {
   await capture('settings')
   await window.webContents.executeJavaScript(`document.querySelector('[data-slot="dialog-close"]')?.click()`)
   window.setSize(430, 850)
-  await window.loadURL(process.env.PULSEBOARD_CAPTURE_URL || 'http://127.0.0.1:5173/')
+  await window.loadURL(process.env.OPENFIT_CAPTURE_URL || 'http://127.0.0.1:5173/')
   await wait(600)
   await capture('mobile')
   for (const [label, name] of pages) {

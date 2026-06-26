@@ -15,7 +15,12 @@ const { createCodexService, resolveCodexBinary } = require('./codex-service.cjs'
 app.commandLine.appendSwitch('lang', 'en-US')
 
 const APP_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png')
+const APP_DISPLAY_NAME = 'OpenFit'
 const DEFAULT_REDIRECT_URI = 'http://127.0.0.1:42813/oauth/callback'
+// safeStorage keys are tied to the historical app name, so initialize Electron
+// with the legacy identity before the secure storage backend is created.
+const LEGACY_USER_DATA_NAME = 'pulseboard-fitbit-desktop'
+app.setName(LEGACY_USER_DATA_NAME)
 const PROVIDERS = {
   'google-health': googleHealth,
   'fitbit-legacy': fitbitLegacy,
@@ -141,7 +146,7 @@ function closeOAuthServer() {
 
 function oauthPage(success, message) {
   const color = success ? '#5ae4c0' : '#ff7b74'
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Pulseboard</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;color:#edf4f5;background:#080c11;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.card{width:min(420px,calc(100vw - 40px));padding:34px;border:1px solid #ffffff12;border-radius:20px;background:#111820;text-align:center;box-shadow:0 25px 80px #0008}.orb{display:grid;width:58px;height:58px;place-items:center;margin:0 auto 18px;border-radius:50%;color:${color};background:${color}16;font-size:25px}h1{margin:0 0 10px;font-size:22px}p{margin:0;color:#83909b;font-size:13px;line-height:1.55}</style></head><body><main class="card"><div class="orb">${success ? '✓' : '!'}</div><h1>${success ? 'Account connected' : 'Connection failed'}</h1><p>${escapeHtml(message)}<br>You can close this tab and return to Pulseboard.</p></main></body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>OpenFit</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;color:#edf4f5;background:#080c11;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.card{width:min(420px,calc(100vw - 40px));padding:34px;border:1px solid #ffffff12;border-radius:20px;background:#111820;text-align:center;box-shadow:0 25px 80px #0008}.orb{display:grid;width:58px;height:58px;place-items:center;margin:0 auto 18px;border-radius:50%;color:${color};background:${color}16;font-size:25px}h1{margin:0 0 10px;font-size:22px}p{margin:0;color:#83909b;font-size:13px;line-height:1.55}</style></head><body><main class="card"><div class="orb">${success ? '✓' : '!'}</div><h1>${success ? 'Account connected' : 'Connection failed'}</h1><p>${escapeHtml(message)}<br>You can close this tab and return to OpenFit.</p></main></body></html>`
 }
 
 function escapeHtml(value) {
@@ -341,7 +346,7 @@ function createWindow() {
     icon: APP_ICON_PATH,
     show: false,
     backgroundColor: '#101112',
-    title: 'Pulseboard',
+    title: 'OpenFit',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 14, y: 15 },
     webPreferences: {
@@ -417,8 +422,8 @@ function registerIpc() {
     const cached = healthCache.normalizeArchive(readSecure(cacheFile, null))
     if (!Object.keys(cached.days).length) throw new Error('There is no real data to export yet.')
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export Pulseboard archive',
-      defaultPath: `pulseboard-archive-${cached.lastDate || 'fitbit'}.json`,
+      title: 'Export OpenFit archive',
+      defaultPath: `openfit-archive-${cached.lastDate || 'health'}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     if (result.canceled || !result.filePath) return { canceled: true }
@@ -485,8 +490,10 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  app.setName(APP_DISPLAY_NAME)
   if (process.platform === 'darwin') app.dock.setIcon(APP_ICON_PATH)
-  const userData = app.getPath('userData')
+  const userData = process.env.OPENFIT_USER_DATA || path.join(app.getPath('appData'), LEGACY_USER_DATA_NAME)
+  app.setPath('userData', userData)
   credentialFile = path.join(userData, 'credentials.secure.json')
   cacheFile = path.join(userData, 'health-cache.secure.json')
   codexService = createCodexService({ cwd: userData, clientVersion: app.getVersion() })

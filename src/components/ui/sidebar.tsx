@@ -199,7 +199,7 @@ function Sidebar({
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Navigazione</SheetTitle>
-            <SheetDescription>Sezioni disponibili di Pulseboard.</SheetDescription>
+            <SheetDescription>Sezioni disponibili di OpenFit.</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
