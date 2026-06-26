@@ -1,56 +1,56 @@
-# Modello informativo della home
+# Home Information Model
 
-La home non è un catalogo di metriche. Deve rispondere, in ordine, a quattro domande:
+The home screen is not a metric catalog. It should answer four questions, in order:
 
-1. **Come sta andando il giorno selezionato?**
-2. **Cosa è diverso dal mio solito o dal mio obiettivo?**
-3. **Quali dati spiegano il quadro?**
-4. **Dove trovo il dettaglio senza perdere il contesto?**
+1. **How is the selected day going?**
+2. **What is different from my usual baseline or my goal?**
+3. **Which data explains the picture?**
+4. **Where can I find detail without losing context?**
 
-OpenFit non genera un punteggio composito proprietario. Ogni sintesi deve essere riconducibile a una misura, a un obiettivo esplicito o a una baseline personale visibile.
+OpenFit does not generate a proprietary composite score. Every summary must trace back to a measurement, an explicit goal, or a visible personal baseline.
 
-## Gerarchia delle metriche
+## Metric Hierarchy
 
-| Ruolo | Metriche | Motivo |
+| Role | Metrics | Reason |
 |---|---|---|
-| Hero | passi rispetto all'obiettivo, durata sonno rispetto all'obiettivo, battito a riposo rispetto alla media personale | sono comprensibili, confrontabili e disponibili con continuità |
-| Diagnostiche | distribuzione oraria dei passi, trend 14 giorni di passi/sonno/RHR, fasi del sonno, attività recenti | spiegano quando e perché il dato si è mosso |
-| Segnali personali | HRV, SpO₂, respirazione e temperatura cutanea | acquistano significato soprattutto rispetto alla baseline dello stesso utente |
-| Contesto secondario | peso, grasso corporeo, acqua e calorie registrate | sono utili nel tempo o dipendono dalla completezza del diario; non definiscono da soli la giornata |
-| Dettaglio/alert | FC intraday, ECG, glicemia, ritmo irregolare, VO₂ max | richiedono timestamp, contesto o cautela interpretativa; emergono in home solo quando esiste un alert esplicito |
-| Operativo | dispositivo, batteria, sincronizzazione ed errori | indicano affidabilità e disponibilità, non benessere |
+| Hero | steps versus goal, sleep duration versus goal, resting heart rate versus personal average | understandable, comparable, and continuously available |
+| Diagnostics | hourly step distribution, 14-day steps / sleep / RHR trends, sleep stages, recent activities | explain when and why the value moved |
+| Personal signals | HRV, SpO2, respiration, and skin temperature | meaningful mostly against the same user's baseline |
+| Secondary context | weight, body fat, water, and logged calories | useful over time or dependent on diary completeness. They do not define the day by themselves |
+| Detail / alerts | intraday HR, ECG, glucose, irregular rhythm, VO2 max | require timestamps, context, or interpretation caution. They appear on home only when an explicit alert exists |
+| Operational | device, battery, sync, and errors | indicate reliability and availability, not wellbeing |
 
-## Contratto dei grafici
+## Chart Contract
 
-| Sezione | Domanda | Forma | Dati e benchmark | Palette |
+| Section | Question | Shape | Data and Benchmark | Palette |
 |---|---|---|---|---|
-| Movimento giornaliero | Quando mi sono mosso? | colonne orarie interattive | 24 bucket, valore esatto in hover/focus | activity, singola radice |
-| Sonno | Quanto e come ho dormito? | durata + anello score/efficienza + barra stacked | obiettivo personale, fasi sul periodo registrato | sleep, scala monocromatica |
-| Passi 14 giorni | Il volume di movimento sta cambiando? | colonne giornaliere | 14 giorni, linea obiettivo quando disponibile | activity |
-| Sonno 14 giorni | La durata è consistente? | colonne giornaliere | 14 notti, linea obiettivo | sleep |
-| RHR 14 giorni | Il battito a riposo si discosta dal mio solito? | linea | media personale dei 7 giorni precedenti | heart |
-| Segnali notturni | Cosa è cambiato rispetto a me? | scorecard, non grafico se c'è una sola osservazione | media personale quando esistono almeno 3 giorni precedenti | recovery |
+| Daily movement | When did I move? | interactive hourly columns | 24 buckets, exact value on hover / focus | activity, single root |
+| Sleep | How long and how well did I sleep? | duration + score / efficiency ring + stacked bar | personal goal, stages over the recorded period | sleep, monochrome scale |
+| 14-day steps | Is movement volume changing? | daily columns | 14 days, goal line when available | activity |
+| 14-day sleep | Is duration consistent? | daily columns | 14 nights, goal line | sleep |
+| 14-day RHR | Is resting heart rate different from my usual? | line | personal average from the previous 7 days | heart |
+| Night signals | What changed compared with me? | scorecards, no chart for a single observation | personal average when at least 3 previous days exist | recovery |
 
-Il colore identifica una categoria e non uno stato clinico. Testo, icona, forma e unità devono mantenere il significato anche senza colore.
+Color identifies a category, not a clinical state. Text, icon, shape, and unit must preserve meaning without color.
 
-## Regole di interpretazione
+## Interpretation Rules
 
-- I goal configurati dall'utente hanno precedenza su soglie generiche. `10.000 passi` non viene trattato come soglia medica universale.
-- HRV, RHR, respirazione, SpO₂ e temperatura sono confrontati prima di tutto con la baseline personale.
-- Una singola lettura notturna viene descritta, non diagnosticata.
-- La temperatura cutanea è uno scostamento dalla baseline del dispositivo, non una temperatura corporea.
-- Le fasi del sonno sono stime da movimento e frequenza cardiaca; durata e andamento restano il contesto principale.
-- Peso e grasso corporeo vanno letti come trend. La bioimpedenza è una stima sensibile alle condizioni della misurazione.
-- Acqua e calorie in ingresso sono etichettate come “registrate”: l'assenza di log non equivale a zero.
-- `successCount / endpointCount` descrive letture API completate, non completezza clinica dei dati.
+- User-configured goals take precedence over generic thresholds. `10,000 steps` is not treated as a universal medical threshold.
+- HRV, RHR, respiration, SpO2, and temperature are compared first with the user's personal baseline.
+- A single nightly reading is described, not diagnosed.
+- Skin temperature is a deviation from the device baseline, not body temperature.
+- Sleep stages are estimates from movement and heart rate. Duration and trend remain the main context.
+- Weight and body fat should be read as trends. Bioimpedance is an estimate that depends on measurement conditions.
+- Water and calorie intake are labeled as logged. Missing logs do not equal zero.
+- `successCount / endpointCount` describes completed API reads, not clinical data completeness.
 
-## Fonti di riferimento
+## Reference Sources
 
-- [Fitbit: metriche di salute e range personali](https://support.google.com/fitbit/answer/14236917?hl=en)
-- [Fitbit: frequenza cardiaca e HRV](https://support.google.com/fitbit/answer/14237938?hl=en)
-- [Fitbit: punteggio del sonno](https://support.google.com/fitbit/answer/14236513?hl=en)
-- [Fitbit: stima delle fasi del sonno](https://support.google.com/fitbit/answer/14236712?hl=en-CA)
-- [Fitbit: minuti in zona attiva](https://support.google.com/fitbit/answer/14236509?hl=it)
-- [Fitbit: temperatura cutanea e baseline](https://support.google.com/fitbit/answer/14237207?hl=en)
-- [CDC: durata del sonno](https://www.cdc.gov/sleep/about/)
-- [WHO: attività fisica](https://www.who.int/health-topics/noncommunicable-diseases/physical-activity)
+- [Fitbit: health metrics and personal ranges](https://support.google.com/fitbit/answer/14236917?hl=en)
+- [Fitbit: heart rate and HRV](https://support.google.com/fitbit/answer/14237938?hl=en)
+- [Fitbit: sleep score](https://support.google.com/fitbit/answer/14236513?hl=en)
+- [Fitbit: sleep stages estimate](https://support.google.com/fitbit/answer/14236712?hl=en-CA)
+- [Fitbit: Active Zone Minutes](https://support.google.com/fitbit/answer/14236509?hl=en)
+- [Fitbit: skin temperature and baseline](https://support.google.com/fitbit/answer/14237207?hl=en)
+- [CDC: sleep duration](https://www.cdc.gov/sleep/about/)
+- [WHO: physical activity](https://www.who.int/health-topics/noncommunicable-diseases/physical-activity)

@@ -1,12 +1,12 @@
-# openfit
+# OpenFit
 
-openfit is a private, desktop-first Electron dashboard for Google Fitbit Air and other Fitbit devices. Its adaptive interface prioritizes a small set of useful insights and only displays views, metrics, and navigation when Google Health returns real data.
+OpenFit is a private, desktop-first Electron dashboard for Google Fitbit Air and other Fitbit devices. Its adaptive interface prioritizes a small set of useful insights and only displays views, metrics, and navigation when Google Health returns real data.
 
 The renderer uses React, shadcn/Radix, Tailwind CSS v4, assistant-ui, Inter Variable, JetBrains Mono, and Nucleo Essential Outline icons.
 
 > Project status: the application is complete and buildable. Demo mode works without configuration. Accessing personal data requires an OAuth client in your own Google Cloud project.
 
-## How Fitbit data reaches openfit
+## How Fitbit data reaches OpenFit
 
 Fitbit Air does **not provide a public Bluetooth synchronization interface** for third-party applications. The supported data path is:
 
@@ -14,10 +14,10 @@ Fitbit Air does **not provide a public Bluetooth synchronization interface** for
 Fitbit Air -> Bluetooth -> Fitbit/Google Health mobile app
                                   |
                                   v cloud sync
-                         Google Health API -> openfit
+                         Google Health API -> OpenFit
 ```
 
-openfit uses **Google Health API v4** as its default provider. The legacy Fitbit Web API remains available only as a transitional adapter and is scheduled for deprecation in September 2026.
+OpenFit uses **Google Health API v4** as its default provider. The legacy Fitbit Web API remains available only as a transitional adapter and is scheduled for deprecation in September 2026.
 
 The desktop application can replace the browsing and analysis experience, but it cannot perform initial device pairing, firmware updates, or phone-to-device synchronization.
 
@@ -27,7 +27,7 @@ Requirements:
 
 - Node.js 22 or later;
 - npm 10 or later;
-- Codex Desktop and a signed-in Codex account, only if you want to use the health assistant. openfit reuses the local login and does not require an API key.
+- Codex Desktop and a signed-in Codex account, only if you want to use the health assistant. OpenFit reuses the local login and does not require an API key.
 
 ```bash
 npm install
@@ -54,27 +54,27 @@ You need:
 - the Google account used by the Fitbit mobile app;
 - access to [Google Cloud Console](https://console.cloud.google.com/);
 - Fitbit Air or another supported tracker already paired and synchronized with the Fitbit app;
-- openfit running with `npm run dev` or as an installed desktop application.
+- OpenFit running with `npm run dev` or as an installed desktop application.
 
 API configuration, OAuth consent, and OAuth credentials must all belong to the same Google Cloud project.
 
 ### 1. Create a Google Cloud project
 
 1. Open [Create a Google Cloud project](https://console.cloud.google.com/projectcreate).
-2. Name the project `openfit`.
+2. Name the project `OpenFit`.
 3. For a personal account, leave **Organization** set to **No organization**.
 4. Create the project and select it from the project picker.
 
 ### 2. Enable Google Health API
 
-1. With the openfit project selected, open [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
+1. With the OpenFit project selected, open [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
 2. Click **Enable**.
 3. Wait until the page shows that the API is enabled or displays **Manage**.
 
 ### 3. Configure the OAuth consent screen
 
 1. Open [Google Auth Platform](https://console.cloud.google.com/auth/overview) and click **Get started**.
-2. Set the application name to `openfit` and enter a support email.
+2. Set the application name to `OpenFit` and enter a support email.
 3. Select **External** as the audience. **Internal** only supports accounts in the same Google Workspace organization.
 4. Enter a contact email and complete the setup.
 5. Open [Audience](https://console.cloud.google.com/auth/audience), add the Google account used by Fitbit as a test user, and save it.
@@ -97,13 +97,13 @@ https://www.googleapis.com/auth/googlehealth.settings.readonly
 https://www.googleapis.com/auth/googlehealth.sleep.readonly
 ```
 
-Do not add write scopes. openfit also requests the standard `openid` and `profile` scopes to display the account name and avatar.
+Do not add write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar.
 
 ### 5. Create the OAuth client
 
 1. Open [Google Auth Platform clients](https://console.cloud.google.com/auth/clients).
 2. Create an OAuth client of type **Web application**.
-3. Name it `openfit Desktop`.
+3. Name it `OpenFit Desktop`.
 4. Leave **Authorized JavaScript origins** empty.
 5. Add this exact **Authorized redirect URI**:
 
@@ -113,19 +113,19 @@ Do not add write scopes. openfit also requests the standard `openid` and `profil
 
 6. Create the client and retain its Client ID and Client Secret.
 
-Do not commit or share these credentials. During authorization, openfit starts a temporary loopback server on port `42813`, validates OAuth `state` and PKCE, receives the authorization code, and then closes the server.
+Do not commit or share these credentials. During authorization, OpenFit starts a temporary loopback server on port `42813`, validates OAuth `state` and PKCE, receives the authorization code, and then closes the server.
 
-### 6. Connect openfit
+### 6. Connect OpenFit
 
-1. Start openfit.
+1. Start OpenFit.
 2. Click **Connect Fitbit** and select **Google Health**.
 3. Paste the Client ID and Client Secret.
 4. Confirm that the callback URL is `http://127.0.0.1:42813/oauth/callback`.
 5. Click **Save and connect**.
 6. In the system browser, select the same Google account that you added as a test user and approve the requested access.
-7. Return to openfit. The first synchronization starts automatically.
+7. Return to OpenFit. The first synchronization starts automatically.
 
-The connection is working when openfit shows **Google Health** instead of **Demo mode**, displays a last synchronization time, and begins showing real device and health metrics. Metric availability depends on the device, region, granted consent, and recent Fitbit mobile synchronization.
+The connection is working when OpenFit shows **Google Health** instead of **Demo mode**, displays a last synchronization time, and begins showing real device and health metrics. Metric availability depends on the device, region, granted consent, and recent Fitbit mobile synchronization.
 
 ### Security note
 
@@ -157,13 +157,13 @@ HTTP 403 or API not enabled
 
 Port `42813` is already in use
 
-- Close other openfit processes and retry. Only one OAuth flow can use the callback port at a time.
+- Close other OpenFit processes and retry. Only one OAuth flow can use the callback port at a time.
 
 Some metrics are missing
 
 - Open the Fitbit app on the phone and wait for the tracker to synchronize.
-- Return to openfit and click **Sync**.
-- ECG, SpO2, skin temperature, HRV, and irregular-rhythm notifications may not be available for every device, account, or country. openfit hides sections for which no data exists.
+- Return to OpenFit and click **Sync**.
+- ECG, SpO2, skin temperature, HRV, and irregular-rhythm notifications may not be available for every device, account, or country. OpenFit hides sections for which no data exists.
 
 For a longer checklist, see [Google Health setup](docs/GOOGLE_HEALTH_SETUP.md).
 
@@ -205,7 +205,7 @@ See [Architecture](docs/ARCHITECTURE.md) for security boundaries and design deci
 
 The chat button in the top bar opens a right-side panel built with assistant-ui primitives. Its bridge uses `codex app-server`, the same local interface used by Codex clients, with a read-only sandbox, approvals disabled, and tool calls denied by default.
 
-When you send a message, openfit creates a compact context containing normalized metrics, available dates, and details for the selected day. It does not include OAuth credentials or encrypted files. This context is sent to Codex/OpenAI only after you use the chat. Codex may navigate to an openfit view or date, but it cannot modify health data.
+When you send a message, OpenFit creates a compact context containing normalized metrics, available dates, and details for the selected day. It does not include OAuth credentials or encrypted files. This context is sent to Codex/OpenAI only after you use the chat. Codex may navigate to an OpenFit view or date, but it cannot modify health data.
 
 No Codex model name is hard-coded in this repository. The app-server selects its configured default model unless a model is supplied programmatically through the service options.
 
@@ -222,4 +222,4 @@ No Codex model name is hard-coded in this repository. The app-server selects its
 
 Icons: Nucleo Essential Outline (c) Nucleo, used under the [Nucleo license](https://nucleoapp.com/license/).
 
-The information displayed by openfit is not a diagnosis or medical advice.
+The information displayed by OpenFit is not a diagnosis or medical advice.
