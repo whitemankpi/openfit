@@ -15,9 +15,12 @@ const { createCodexService, resolveCodexBinary } = require('./codex-service.cjs'
 app.commandLine.appendSwitch('lang', 'en-US')
 
 const APP_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png')
+const APP_DISPLAY_NAME = 'OpenFit'
 const DEFAULT_REDIRECT_URI = 'http://127.0.0.1:42813/oauth/callback'
-// Preserve the existing encrypted local cache while the visible product name is OpenFit.
+// safeStorage keys are tied to the historical app name, so initialize Electron
+// with the legacy identity before the secure storage backend is created.
 const LEGACY_USER_DATA_NAME = 'pulseboard-fitbit-desktop'
+app.setName(LEGACY_USER_DATA_NAME)
 const PROVIDERS = {
   'google-health': googleHealth,
   'fitbit-legacy': fitbitLegacy,
@@ -487,6 +490,7 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  app.setName(APP_DISPLAY_NAME)
   if (process.platform === 'darwin') app.dock.setIcon(APP_ICON_PATH)
   const userData = process.env.OPENFIT_USER_DATA || path.join(app.getPath('appData'), LEGACY_USER_DATA_NAME)
   app.setPath('userData', userData)
