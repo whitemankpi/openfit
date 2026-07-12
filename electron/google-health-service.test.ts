@@ -156,4 +156,34 @@ describe('Google Health adapter', () => {
     expect(endpoints.activity.summary.fairlyActiveMinutes).toBeNull()
     expect(endpoints.activity.summary.veryActiveMinutes).toBeNull()
   })
+
+  it('aggregates raw oxygen saturation samples when the daily summary is absent', () => {
+    const endpoints = __test.translateGoogleHealth({
+      spo2Raw: { dataPoints: [] },
+      spo2SamplesRaw: { dataPoints: [
+        { oxygenSaturation: { sampleTime: { civilTime: civil('2026-06-22') }, percentage: 96 } },
+        { oxygenSaturation: { sampleTime: { civilTime: civil('2026-06-22') }, percentage: 98 } },
+        { oxygenSaturation: { sampleTime: { civilTime: civil('2026-06-22') }, percentage: 97 } },
+      ] },
+    }, '2026-06-22')
+
+    expect(endpoints.spo2.value).toEqual({ avg: 97, min: 96, max: 98 })
+    expect(endpoints.metricTrends.values[0]).toMatchObject({ dateTime: '2026-06-22', spo2: 97 })
+  })
+
+  it('prefers the daily oxygen summary over raw samples', () => {
+    const endpoints = __test.translateGoogleHealth({
+      spo2Raw: { dataPoints: [{ dailyOxygenSaturation: {
+        date: { year: 2026, month: 6, day: 22 },
+        averagePercentage: 97.4,
+        lowerBoundPercentage: 96.2,
+        upperBoundPercentage: 98.1,
+      } }] },
+      spo2SamplesRaw: { dataPoints: [
+        { oxygenSaturation: { sampleTime: { civilTime: civil('2026-06-22') }, percentage: 94 } },
+      ] },
+    }, '2026-06-22')
+
+    expect(endpoints.spo2.value).toEqual({ avg: 97.4, min: 96.2, max: 98.1 })
+  })
 })
