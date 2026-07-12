@@ -1,4 +1,4 @@
-FROM node:22-bookworm AS build
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -6,52 +6,21 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm run build:web
 
 FROM node:22-bookworm-slim AS runtime
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    DISPLAY=:0 \
-    OPENFIT_USER_DATA=/data \
-    VNC_RESOLUTION=1440x900
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        chromium \
-        curl \
-        dbus-x11 \
-        fluxbox \
-        libasound2 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libcups2 \
-        libdrm2 \
-        libgbm1 \
-        libgtk-3-0 \
-        libnss3 \
-        libx11-xcb1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libxrandr2 \
-        novnc \
-        supervisor \
-        websockify \
-        x11vnc \
-        xdg-utils \
-        xvfb \
-    && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production \
+    PORT=3000 \
+    OPENFIT_DATA_DIR=/data
 
 WORKDIR /app
 
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/electron ./electron
-COPY --from=build /app/build ./build
-COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
+COPY --from=build /app/dist-server ./dist-server
+COPY --from=build /app/electron/google-health-service.cjs ./electron/google-health-service.cjs
+COPY --from=build /app/electron/fitbit-legacy-service.cjs ./electron/fitbit-legacy-service.cjs
+COPY --from=build /app/electron/health-cache.cjs ./electron/health-cache.cjs
 
 RUN useradd --create-home --uid 10001 openfit \
     && mkdir -p /data \
@@ -60,9 +29,9 @@ RUN useradd --create-home --uid 10001 openfit \
 USER openfit
 
 VOLUME ["/data"]
-EXPOSE 6080
+EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl --fail --silent http://127.0.0.1:6080/vnc.html >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+CMD ["node", "dist-server/server/index.js"]
