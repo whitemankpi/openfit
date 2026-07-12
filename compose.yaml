@@ -1,0 +1,19 @@
+services:
+  openfit:
+    build:
+      context: .
+    image: openfit:local
+    restart: unless-stopped
+    environment:
+      VNC_PASSWORD: ${VNC_PASSWORD:?Set VNC_PASSWORD in .env}
+      VNC_RESOLUTION: ${VNC_RESOLUTION:-1440x900}
+    ports:
+      - "127.0.0.1:${OPENFIT_PORT:-6080}:6080"
+    volumes:
+      - openfit-data:/data
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  openfit-data:
