@@ -53,38 +53,33 @@ npm run dist        # Package the app for macOS, Windows, or Linux
 
 ## Docker deployment
 
-The container runs the existing Electron application in a virtual display and
-publishes that display through noVNC. This preserves the desktop OAuth flow and
-local persistent storage while making OpenFit accessible from a browser on a VPS.
+The container serves a single-user web version with the React frontend and a
+Node.js API. Google credentials and health cache are encrypted in a persistent
+Docker volume.
 
 ```bash
 cp .env.example .env
-# Set a long, unique VNC_PASSWORD in .env before continuing.
+# Set APP_BASE_URL, a strong password, and a random encryption key:
+# openssl rand -hex 32
 docker compose up -d --build
 ```
 
-Open `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` through an SSH
-tunnel or a TLS-enabled reverse proxy. The Compose port is intentionally bound
-to loopback so the unencrypted noVNC endpoint is not exposed directly to the
-internet.
+Proxy the loopback-bound port through a TLS-enabled Caddy or Nginx virtual host.
+`APP_BASE_URL` must match its public HTTPS origin, for example
+`https://openfit.example.com`. OpenFit uses HTTP Basic authentication with the
+username and password from `.env`.
 
-For an SSH tunnel from your workstation:
+For a local test without a public domain, set
+`APP_BASE_URL=http://127.0.0.1:3000`, start Compose, then create an SSH tunnel:
 
 ```bash
-ssh -L 6080:127.0.0.1:6080 user@your-vps
+ssh -L 3000:127.0.0.1:3000 user@your-vps
 ```
 
-Then visit `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` locally.
-OAuth credentials and health data are stored in the `openfit-data` Docker volume.
-Back up that volume before recreating the VPS. To use another local proxy port,
-set `OPENFIT_PORT` in `.env`.
-
-Linux secret storage availability varies by VPS. Treat the Docker volume as
-sensitive, restrict host access to it, and use encrypted VPS storage when possible.
-
-Do not publish port 6080 on a public interface without HTTPS and an additional
-authentication layer. Health information and the VNC password otherwise travel
-without transport encryption.
+Visit `http://127.0.0.1:3000`. For Google Health, create a **Web application**
+OAuth client and register exactly `${APP_BASE_URL}/oauth/callback` as an authorized
+redirect URI. Back up the `openfit-data` volume and the encryption key together;
+the stored data cannot be recovered without that key.
 
 Packages generated locally in `release/` are unsigned unless an Apple Developer ID certificate is available in the Keychain. For public distribution, follow the [release checklist](docs/RELEASE.md).
 
