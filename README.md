@@ -51,6 +51,41 @@ npm run capture:ui  # Run desktop/mobile visual QA in Electron Chromium
 npm run dist        # Package the app for macOS, Windows, or Linux
 ```
 
+## Docker deployment
+
+The container runs the existing Electron application in a virtual display and
+publishes that display through noVNC. This preserves the desktop OAuth flow and
+local persistent storage while making OpenFit accessible from a browser on a VPS.
+
+```bash
+cp .env.example .env
+# Set a long, unique VNC_PASSWORD in .env before continuing.
+docker compose up -d --build
+```
+
+Open `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` through an SSH
+tunnel or a TLS-enabled reverse proxy. The Compose port is intentionally bound
+to loopback so the unencrypted noVNC endpoint is not exposed directly to the
+internet.
+
+For an SSH tunnel from your workstation:
+
+```bash
+ssh -L 6080:127.0.0.1:6080 user@your-vps
+```
+
+Then visit `http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale` locally.
+OAuth credentials and health data are stored in the `openfit-data` Docker volume.
+Back up that volume before recreating the VPS. To use another local proxy port,
+set `OPENFIT_PORT` in `.env`.
+
+Linux secret storage availability varies by VPS. Treat the Docker volume as
+sensitive, restrict host access to it, and use encrypted VPS storage when possible.
+
+Do not publish port 6080 on a public interface without HTTPS and an additional
+authentication layer. Health information and the VNC password otherwise travel
+without transport encryption.
+
 Packages generated locally in `release/` are unsigned unless an Apple Developer ID certificate is available in the Keychain. For public distribution, follow the [release checklist](docs/RELEASE.md).
 
 ## Connect Google Health
