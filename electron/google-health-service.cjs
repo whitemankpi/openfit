@@ -246,6 +246,7 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     ['restingHeartRaw', () => listData(accessToken, 'daily-resting-heart-rate', 'daily', trendStart, dayAfter)],
     ['hrvRaw', () => listData(accessToken, 'daily-heart-rate-variability', 'daily', trendStart, dayAfter)],
     ['spo2Raw', () => listData(accessToken, 'daily-oxygen-saturation', 'daily', trendStart, dayAfter)],
+    ['spo2SamplesRaw', () => listData(accessToken, 'oxygen-saturation', 'sample', trendStart, dayAfter)],
     ['breathingRaw', () => listData(accessToken, 'daily-respiratory-rate', 'daily', trendStart, dayAfter)],
     ['skinTemperatureRaw', () => listData(accessToken, 'daily-sleep-temperature-derivations', 'daily', trendStart, dayAfter)],
     ['cardioRaw', () => listData(accessToken, 'daily-vo2-max', 'daily', trendStart, dayAfter)],
@@ -303,6 +304,25 @@ function dailyRecordMap(payload, key, extractor) {
     const record = point[key]
     return [dateFromCivil(record?.date), extractor(record)]
   }).filter(([date]) => date))
+}
+
+function oxygenSampleMap(payload) {
+  const grouped = new Map()
+  for (const point of dataPoints(payload)) {
+    const record = point.oxygenSaturation
+    const date = dateFromCivil(record?.sampleTime?.civilTime)
+      || record?.sampleTime?.time?.slice?.(0, 10)
+    const percentage = numeric(record?.percentage)
+    if (!date || percentage === null || percentage < 0 || percentage > 100) continue
+    const values = grouped.get(date) || []
+    values.push(percentage)
+    grouped.set(date, values)
+  }
+  return new Map([...grouped].map(([date, values]) => [date, {
+    average: values.reduce((sum, value) => sum + value, 0) / values.length,
+    lowerBound: Math.min(...values),
+    upperBound: Math.max(...values),
+  }]))
 }
 
 function selected(map, date) {
@@ -407,11 +427,21 @@ function translateGoogleHealth(raw, selectedDate) {
     entropy: numeric(record?.entropy),
     nonRemHeartRate: numeric(record?.nonRemHeartRateBeatsPerMinute),
   }))
-  const spo2 = dailyRecordMap(raw.spo2Raw, 'dailyOxygenSaturation', (record) => ({
+  const dailySpo2 = dailyRecordMap(raw.spo2Raw, 'dailyOxygenSaturation', (record) => ({
     average: numeric(record?.averagePercentage),
     lowerBound: numeric(record?.lowerBoundPercentage),
     upperBound: numeric(record?.upperBoundPercentage),
   }))
+  const sampleSpo2 = oxygenSampleMap(raw.spo2SamplesRaw)
+  const spo2 = new Map(sampleSpo2)
+  for (const [date, summary] of dailySpo2) {
+    const samples = sampleSpo2.get(date)
+    spo2.set(date, {
+      average: summary.average ?? samples?.average ?? null,
+      lowerBound: summary.lowerBound ?? samples?.lowerBound ?? null,
+      upperBound: summary.upperBound ?? samples?.upperBound ?? null,
+    })
+  }
   const breathing = dailyRecordMap(raw.breathingRaw, 'dailyRespiratoryRate', (record) => numeric(record?.breathsPerMinute))
   const skinTemp = dailyRecordMap(raw.skinTemperatureRaw, 'dailySleepTemperatureDerivations', (record) => {
     const nightly = numeric(record?.nightlyTemperatureCelsius)
