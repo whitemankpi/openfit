@@ -128,6 +128,7 @@ export default function App() {
   const syncingRef = useRef(false)
   const syncTargetDateRef = useRef<string | null>(null)
   const queuedDateRef = useRef<string | null>(null)
+  const initialSyncDateRef = useRef<string | null>(null)
 
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
@@ -149,9 +150,11 @@ export default function App() {
       if (cached) {
         const normalized = normalizeFitbitData(cached)
         dataDateRef.current = normalized.selectedDate
-        selectedDateRef.current = normalized.selectedDate
         setData({ ...normalized, source: 'cache' })
-        setSelectedDate(normalized.selectedDate)
+        if (!nextStatus.connected || normalized.selectedDate >= selectedDateRef.current) {
+          selectedDateRef.current = normalized.selectedDate
+          setSelectedDate(normalized.selectedDate)
+        }
       }
     } catch (error) {
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to read the local status.' })
@@ -225,6 +228,14 @@ export default function App() {
       setSyncProgress(null)
     }
   }, [])
+
+  useEffect(() => {
+    const requestedDate = selectedDateRef.current
+    if (!status.connected || data.source !== 'cache' || data.selectedDate >= requestedDate) return
+    if (initialSyncDateRef.current === requestedDate) return
+    initialSyncDateRef.current = requestedDate
+    void runSync(requestedDate)
+  }, [data.selectedDate, data.source, runSync, status.connected])
 
   useEffect(() => {
     void loadNativeState()
