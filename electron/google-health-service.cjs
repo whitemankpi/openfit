@@ -329,6 +329,13 @@ function selected(map, date) {
   return map.get(date) ?? null
 }
 
+function localDateAndTime(now = new Date()) {
+  return {
+    date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+    time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+  }
+}
+
 function numeric(value, transform = (number) => number) {
   if (value === undefined || value === null || value === '') return null
   const parsed = Number(value)
@@ -403,7 +410,9 @@ function toLegacySleep(point) {
   }
 }
 
-function translateGoogleHealth(raw, selectedDate) {
+function translateGoogleHealth(raw, selectedDate, now = new Date()) {
+  const current = localDateAndTime(now)
+  const isFutureTimeToday = (time) => selectedDate === current.date && time > current.time
   const steps = dailyMap(raw.stepsDaily, (point) => numeric(point.steps?.countSum))
   const calories = dailyMap(raw.caloriesDaily, (point) => numeric(point.totalCalories?.kcalSum))
   const distance = dailyMap(raw.distanceDaily, (point) => numeric(point.distance?.millimetersSum, (value) => value / 1_000_000))
@@ -498,6 +507,7 @@ function translateGoogleHealth(raw, selectedDate) {
     const date = dateFromCivil(record.interval?.civilStartTime)
     if (date && date !== selectedDate) return null
     const time = timeFromCivil(record.interval?.civilStartTime) || record.interval?.startTime?.slice(11, 16)
+    if (time && isFutureTimeToday(time)) return null
     return { time, value: Number(record.count || 0) }
   }).filter((point) => point?.time).sort((a, b) => a.time.localeCompare(b.time))
   const heartPoints = dataPoints(raw.heartIntradayRaw).map((point) => {
@@ -505,6 +515,7 @@ function translateGoogleHealth(raw, selectedDate) {
     const date = dateFromCivil(record.sampleTime?.civilTime)
     if (date && date !== selectedDate) return null
     const time = timeFromCivil(record.sampleTime?.civilTime) || record.sampleTime?.physicalTime?.slice(11, 16)
+    if (time && isFutureTimeToday(time)) return null
     return { time, value: Number(record.beatsPerMinute || 0) }
   }).filter((point) => point?.time && point.value).sort((a, b) => a.time.localeCompare(b.time))
   const profile = raw.profileRaw || {}

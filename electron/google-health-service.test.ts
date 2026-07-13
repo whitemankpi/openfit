@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const { __test } = require('./google-health-service.cjs') as {
-  __test: { translateGoogleHealth: (raw: Record<string, any>, date: string) => Record<string, any> }
+  __test: { translateGoogleHealth: (raw: Record<string, any>, date: string, now?: Date) => Record<string, any> }
 }
 
 const civil = (date: string) => {
@@ -206,6 +206,28 @@ describe('Google Health adapter', () => {
     }, '2026-06-22')
 
     expect(endpoints.heartIntraday['activities-heart-intraday'].dataset).toEqual([{ time: '08:15', value: 72 }])
+    expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([{ time: '09:00', value: 40 }])
+  })
+
+  it('drops future intraday samples from the current civil day', () => {
+    const sampleTime = (hours: number, minutes: number) => ({
+      civilTime: {
+        ...civil('2026-06-22'),
+        time: { hours, minutes },
+      },
+    })
+    const endpoints = __test.translateGoogleHealth({
+      heartIntradayRaw: { dataPoints: [
+        { heartRate: { sampleTime: sampleTime(10, 15), beatsPerMinute: 72 } },
+        { heartRate: { sampleTime: sampleTime(21, 0), beatsPerMinute: 60 } },
+      ] },
+      stepsIntradayRaw: { dataPoints: [
+        { steps: { interval: { civilStartTime: sampleTime(9, 0).civilTime }, count: 40 } },
+        { steps: { interval: { civilStartTime: sampleTime(22, 0).civilTime }, count: 20 } },
+      ] },
+    }, '2026-06-22', new Date(2026, 5, 22, 12, 41))
+
+    expect(endpoints.heartIntraday['activities-heart-intraday'].dataset).toEqual([{ time: '10:15', value: 72 }])
     expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([{ time: '09:00', value: 40 }])
   })
 })
