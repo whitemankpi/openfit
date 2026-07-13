@@ -81,6 +81,10 @@ OAuth client and register exactly `${APP_BASE_URL}/oauth/callback` as an authori
 redirect URI. Back up the `openfit-data` volume and the encryption key together;
 the stored data cannot be recovered without that key.
 
+Set `TZ` in `.env` to the timezone used by the connected health account (for
+example, `Europe/Kyiv`). This keeps the server's current-day validation aligned
+with the browser and Google Health civil dates around midnight.
+
 Packages generated locally in `release/` are unsigned unless an Apple Developer ID certificate is available in the Keychain. For public distribution, follow the [release checklist](docs/RELEASE.md).
 
 ## Connect Google Health
