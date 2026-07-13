@@ -186,4 +186,26 @@ describe('Google Health adapter', () => {
 
     expect(endpoints.spo2.value).toEqual({ avg: 97.4, min: 96.2, max: 98.1 })
   })
+
+  it('drops intraday samples that bleed in from an adjacent civil day', () => {
+    const sampleTime = (date: string, hours: number, minutes: number) => ({
+      civilTime: {
+        ...civil(date),
+        time: { hours, minutes },
+      },
+    })
+    const endpoints = __test.translateGoogleHealth({
+      heartIntradayRaw: { dataPoints: [
+        { heartRate: { sampleTime: sampleTime('2026-06-21', 23, 58), beatsPerMinute: 60 } },
+        { heartRate: { sampleTime: sampleTime('2026-06-22', 8, 15), beatsPerMinute: 72 } },
+      ] },
+      stepsIntradayRaw: { dataPoints: [
+        { steps: { interval: { civilStartTime: sampleTime('2026-06-21', 23, 0).civilTime }, count: 20 } },
+        { steps: { interval: { civilStartTime: sampleTime('2026-06-22', 9, 0).civilTime }, count: 40 } },
+      ] },
+    }, '2026-06-22')
+
+    expect(endpoints.heartIntraday['activities-heart-intraday'].dataset).toEqual([{ time: '08:15', value: 72 }])
+    expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([{ time: '09:00', value: 40 }])
+  })
 })

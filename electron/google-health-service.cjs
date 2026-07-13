@@ -495,14 +495,18 @@ function translateGoogleHealth(raw, selectedDate) {
   }
   const stepPoints = dataPoints(raw.stepsIntradayRaw).map((point) => {
     const record = point.steps || {}
+    const date = dateFromCivil(record.interval?.civilStartTime)
+    if (date && date !== selectedDate) return null
     const time = timeFromCivil(record.interval?.civilStartTime) || record.interval?.startTime?.slice(11, 16)
     return { time, value: Number(record.count || 0) }
-  }).filter((point) => point.time).sort((a, b) => a.time.localeCompare(b.time))
+  }).filter((point) => point?.time).sort((a, b) => a.time.localeCompare(b.time))
   const heartPoints = dataPoints(raw.heartIntradayRaw).map((point) => {
     const record = point.heartRate || {}
+    const date = dateFromCivil(record.sampleTime?.civilTime)
+    if (date && date !== selectedDate) return null
     const time = timeFromCivil(record.sampleTime?.civilTime) || record.sampleTime?.physicalTime?.slice(11, 16)
     return { time, value: Number(record.beatsPerMinute || 0) }
-  }).filter((point) => point.time && point.value).sort((a, b) => a.time.localeCompare(b.time))
+  }).filter((point) => point?.time && point.value).sort((a, b) => a.time.localeCompare(b.time))
   const profile = raw.profileRaw || {}
   const settings = raw.settingsRaw || {}
   const userInfo = raw.userInfo || {}
