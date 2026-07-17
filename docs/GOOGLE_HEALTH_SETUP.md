@@ -85,7 +85,7 @@ https://www.googleapis.com/auth/googlehealth.sleep.readonly
 https://www.googleapis.com/auth/fitness.activity.read
 ```
 
-Do not select write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar. Reauthorize an existing OpenFit connection after adding the Google Fit activity scope.
+Do not select write scopes. OpenFit requests Google Health and Google Fit in two separate OAuth flows and stores two independent tokens; Google Health rejects a combined token containing Fitness scopes. OpenFit also requests the standard `openid` and `profile` scopes with the Google Health token to display the account name and avatar.
 
 ## 6. Create the OAuth Client
 
@@ -141,6 +141,8 @@ The callback must match the Google Cloud registration character by character, in
 8. In the browser, select the Google account added as a test user.
 9. Approve the requested access.
 10. After confirmation, return to OpenFit. The first sync starts automatically.
+11. Open Settings again and click **Authorize Google Fit steps**.
+12. Approve the activity permission in the second Google consent window. Do not use **Reauthorize Google Health** for this step.
 
 ## 9. Final Verification
 

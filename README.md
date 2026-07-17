@@ -143,7 +143,7 @@ https://www.googleapis.com/auth/fitness.activity.read
 
 Do not add write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar.
 
-Existing connections must be reauthorized after enabling the Fitness API and adding the activity scope. If Google Fit exposes no step bucket to the project, OpenFit safely falls back to Google Health steps.
+Google Health and Google Fit must be authorized separately because Google Health rejects access tokens that contain Fitness scopes. First connect or reauthorize Google Health, then use **Authorize Google Fit steps** in Settings. OpenFit stores and refreshes the two tokens independently. If Google Fit exposes no step bucket to the project, OpenFit safely falls back to Google Health steps.
 
 ### 5. Create the OAuth client
 

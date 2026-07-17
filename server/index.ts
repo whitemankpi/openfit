@@ -13,7 +13,7 @@ const healthCache = require(path.resolve('electron/health-cache.cjs'))
 
 type ProviderName = 'google-health' | 'fitbit-legacy'
 type Config = { provider: ProviderName; clientId: string; clientSecret: string; redirectUri: string }
-type Credentials = { config: Config; token: any; lastSyncAt: string | null }
+type Credentials = { config: Config; token: any; googleFitToken?: any; lastSyncAt: string | null }
 
 const port = Number(process.env.PORT || 3000)
 const dataDirectory = process.env.OPENFIT_DATA_DIR || '/data'
@@ -31,7 +31,7 @@ const defaultCredentials: Credentials = {
 const distDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist')
 
 let syncInFlight: Promise<any> | null = null
-let oauth: { state: string; verifier: string; createdAt: number } | null = null
+let oauth: { state: string; verifier: string; createdAt: number; purpose: 'health' | 'google-fit' } | null = null
 let oauthResult: { sequence: number; ok: boolean; error?: string } = { sequence: 0, ok: false }
 
 function requiredEnv(name: string): string {
@@ -55,10 +55,12 @@ function credentials(): Credentials {
 
 function publicStatus() {
   const value = credentials()
+  const healthTokenHasFitScope = String(value.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')
+  const healthTokenUsable = value.config.provider !== 'google-health' || !healthTokenHasFitScope
   return {
     isElectron: false,
     configured: Boolean(value.config.clientId && value.config.redirectUri && (value.config.provider !== 'google-health' || value.config.clientSecret)),
-    connected: Boolean(value.token?.access_token || value.token?.refresh_token),
+    connected: healthTokenUsable && Boolean(value.token?.access_token || value.token?.refresh_token),
     clientId: value.config.clientId || '',
     redirectUri: callbackUrl,
     hasClientSecret: Boolean(value.config.clientSecret),
@@ -66,7 +68,7 @@ function publicStatus() {
     lastSyncAt: value.lastSyncAt,
     provider: value.config.provider,
     googleFitAuthorized: value.config.provider === 'google-health'
-      && String(value.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
+      && String(value.googleFitToken?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
   }
 }
 
@@ -87,9 +89,21 @@ function validateConfig(input: any, previous: Config): Config {
 async function accessCredentials(): Promise<Credentials> {
   const value = credentials()
   if (!value.token) throw new Error('Account not connected.')
+  if (value.config.provider === 'google-health' && String(value.token.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')) {
+    throw new Error('Reauthorize Google Health to replace the legacy combined OAuth token.')
+  }
   if (Number(value.token.expiresAt || 0) > Date.now() + 90_000 && value.token.access_token) return value
   const token = await providerFor(value).refreshAccessToken(value.config, value.token)
   const updated = { ...value, token }
+  store.write('credentials.json', updated)
+  return updated
+}
+
+async function googleFitCredentials(value: Credentials): Promise<Credentials> {
+  if (!value.googleFitToken) throw new Error('Google Fit step access is not connected.')
+  if (Number(value.googleFitToken.expiresAt || 0) > Date.now() + 90_000 && value.googleFitToken.access_token) return value
+  const googleFitToken = await googleHealth.refreshAccessToken(value.config, value.googleFitToken)
+  const updated = { ...value, googleFitToken }
   store.write('credentials.json', updated)
   return updated
 }
@@ -110,9 +124,18 @@ async function syncData(date: string): Promise<any> {
     const cached = healthCache.cachedDay(archive, date)
     if (cached) return { ...cached, cacheHit: true }
   }
-  const value = await accessCredentials()
+  let value = await accessCredentials()
   const service = providerFor(value)
-  const payload = await service.syncData(value.token.access_token, date, () => undefined)
+  let googleFitAccessToken: string | null = null
+  if (service.provider === 'google-health' && value.googleFitToken) {
+    try {
+      value = await googleFitCredentials(value)
+      googleFitAccessToken = value.googleFitToken.access_token
+    } catch (error) {
+      console.warn('Google Fit token refresh failed; syncing Google Health without Fit steps.', error)
+    }
+  }
+  const payload = await service.syncData(value.token.access_token, date, () => undefined, googleFitAccessToken)
   const total = Number(payload.requestStats?.total || 0)
   const succeeded = Number(payload.requestStats?.succeeded || 0)
   const successfulKeys = Array.isArray(payload.requestStats?.successfulKeys) ? payload.requestStats.successfulKeys : []
@@ -163,9 +186,15 @@ async function handleOAuthCallback(url: URL, response: ServerResponse): Promise<
     const code = url.searchParams.get('code')
     if (!code) throw new Error(url.searchParams.get('error_description') || url.searchParams.get('error') || 'Authorization canceled.')
     const value = credentials()
-    const token = await providerFor(value).exchangeAuthorizationCode(value.config, code, current.verifier)
-    store.write('credentials.json', { ...value, token, lastSyncAt: null })
-    store.delete('health-cache.json')
+    const service = providerFor(value)
+    const token = await service.exchangeAuthorizationCode(value.config, code, current.verifier)
+    if (current.purpose === 'health' && service.provider === 'google-health'
+      && String(token.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')) {
+      throw new Error('Google returned a combined token. Revoke OpenFit access in your Google Account and try again.')
+    }
+    store.write('credentials.json', current.purpose === 'google-fit'
+      ? { ...value, googleFitToken: token, lastSyncAt: null }
+      : { ...value, token, lastSyncAt: null })
     oauthResult = { sequence: oauthResult.sequence + 1, ok: true }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     response.end(oauthPage(true, 'Return to OpenFit.'))
@@ -187,7 +216,7 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     const value = credentials()
     const config = validateConfig(await body(request), value.config)
     const changed = ['provider', 'clientId', 'clientSecret'].some((key) => String((value.config as any)[key] || '') !== String((config as any)[key] || ''))
-    store.write('credentials.json', { ...value, config, token: changed ? null : value.token, lastSyncAt: changed ? null : value.lastSyncAt })
+    store.write('credentials.json', { ...value, config, token: changed ? null : value.token, googleFitToken: changed ? null : value.googleFitToken, lastSyncAt: changed ? null : value.lastSyncAt })
     if (changed) store.delete('health-cache.json')
     return json(response, 200, publicStatus()), true
   }
@@ -196,13 +225,21 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     if (!publicStatus().configured) throw new Error('Complete the OAuth configuration first.')
     const service = providerFor(value)
     const pkce = service.createPkce()
-    oauth = { state: crypto.randomBytes(24).toString('hex'), verifier: pkce.verifier, createdAt: Date.now() }
+    oauth = { state: crypto.randomBytes(24).toString('hex'), verifier: pkce.verifier, createdAt: Date.now(), purpose: 'health' }
     return json(response, 200, { ok: true, url: service.createAuthorizationUrl(value.config, oauth.state, pkce), sequence: oauthResult.sequence }), true
+  }
+  if (request.method === 'POST' && url.pathname === '/api/google-fit/oauth/start') {
+    const value = credentials()
+    if (!publicStatus().connected || value.config.provider !== 'google-health') throw new Error('Connect Google Health before authorizing Google Fit.')
+    const pkce = googleHealth.createPkce()
+    oauth = { state: crypto.randomBytes(24).toString('hex'), verifier: pkce.verifier, createdAt: Date.now(), purpose: 'google-fit' }
+    return json(response, 200, { ok: true, url: googleHealth.createGoogleFitAuthorizationUrl(value.config, oauth.state, pkce), sequence: oauthResult.sequence }), true
   }
   if (request.method === 'POST' && url.pathname === '/api/disconnect') {
     const value = credentials()
     try { await providerFor(value).revokeToken(value.token, value.config) } catch (error) { console.warn('Remote token revocation failed.', error) }
-    store.write('credentials.json', { ...value, token: null, lastSyncAt: null })
+    try { await googleHealth.revokeToken(value.googleFitToken, value.config) } catch (error) { console.warn('Google Fit token revocation failed.', error) }
+    store.write('credentials.json', { ...value, token: null, googleFitToken: null, lastSyncAt: null })
     store.delete('health-cache.json')
     oauth = null
     return json(response, 200, publicStatus()), true
@@ -217,10 +254,11 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (request.method === 'POST' && url.pathname === '/api/google-fit/audit') {
     const date = String((await body(request)).date || localIsoDate())
     if (!validSyncDate(date)) throw new Error('Invalid audit date.')
-    const value = await accessCredentials()
+    let value = await accessCredentials()
     const service = providerFor(value)
     if (service.provider !== 'google-health' || typeof service.auditGoogleFitSteps !== 'function') throw new Error('Google Fit audit requires the Google Health provider.')
-    return json(response, 200, await service.auditGoogleFitSteps(value.token.access_token, date)), true
+    value = await googleFitCredentials(value)
+    return json(response, 200, await service.auditGoogleFitSteps(value.token.access_token, value.googleFitToken.access_token, date)), true
   }
   if (request.method === 'GET' && url.pathname === '/api/export') {
     const archive = healthCache.normalizeArchive(store.read('health-cache.json', null))

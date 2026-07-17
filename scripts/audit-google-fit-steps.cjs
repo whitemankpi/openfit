@@ -46,11 +46,16 @@ app.whenReady().then(async () => {
     const credentialsPath = path.join(app.getPath('appData'), 'pulseboard-fitbit-desktop', 'credentials.secure.json')
     const credentials = readSecure(credentialsPath)
     if (credentials.config?.provider !== 'google-health' || !credentials.token) throw new Error('Connect Google Health in OpenFit first.')
-    let token = credentials.token
-    if (!token.access_token || Number(token.expiresAt || 0) < Date.now() + 90_000) {
-      token = await googleHealth.refreshAccessToken(credentials.config, token)
+    if (!credentials.googleFitToken) throw new Error('Authorize Google Fit steps in OpenFit first.')
+    let healthToken = credentials.token
+    let fitToken = credentials.googleFitToken
+    if (!healthToken.access_token || Number(healthToken.expiresAt || 0) < Date.now() + 90_000) {
+      healthToken = await googleHealth.refreshAccessToken(credentials.config, healthToken)
     }
-    const report = await googleHealth.auditGoogleFitSteps(token.access_token, date)
+    if (!fitToken.access_token || Number(fitToken.expiresAt || 0) < Date.now() + 90_000) {
+      fitToken = await googleHealth.refreshAccessToken(credentials.config, fitToken)
+    }
+    const report = await googleHealth.auditGoogleFitSteps(healthToken.access_token, fitToken.access_token, date)
     console.log(JSON.stringify(report, null, 2))
     app.quit()
   } catch (error) {

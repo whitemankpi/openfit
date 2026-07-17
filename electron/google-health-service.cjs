@@ -7,7 +7,7 @@ const GOOGLE_FIT_API_BASE = 'https://www.googleapis.com/fitness/v1'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
-const SCOPES = [
+const HEALTH_SCOPES = [
   'openid',
   'profile',
   'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
@@ -19,8 +19,8 @@ const SCOPES = [
   'https://www.googleapis.com/auth/googlehealth.profile.readonly',
   'https://www.googleapis.com/auth/googlehealth.settings.readonly',
   'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
-  'https://www.googleapis.com/auth/fitness.activity.read',
 ]
+const GOOGLE_FIT_SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
 const GOOGLE_FIT_ESTIMATED_STEPS = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps'
 
@@ -42,21 +42,29 @@ function createPkce() {
   }
 }
 
-function createAuthorizationUrl(config, state, pkce) {
+function authorizationUrl(config, state, pkce, scopes) {
   const url = new URL(AUTHORIZE_URL)
   url.search = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
     response_type: 'code',
-    scope: SCOPES.join(' '),
+    scope: scopes.join(' '),
     access_type: 'offline',
-    include_granted_scopes: 'true',
+    include_granted_scopes: 'false',
     prompt: 'consent',
     state,
     code_challenge: pkce.challenge,
     code_challenge_method: 'S256',
   }).toString()
   return url.toString()
+}
+
+function createAuthorizationUrl(config, state, pkce) {
+  return authorizationUrl(config, state, pkce, HEALTH_SCOPES)
+}
+
+function createGoogleFitAuthorizationUrl(config, state, pkce) {
+  return authorizationUrl(config, state, pkce, GOOGLE_FIT_SCOPES)
 }
 
 async function tokenRequest(parameters) {
@@ -299,9 +307,7 @@ async function preferredGoogleFitAggregate(accessToken, startTimeMillis, endTime
   return { mode: 'all-step-sources', payload: aggregate }
 }
 
-async function syncGoogleFitSteps(accessToken, selectedDate) {
-  const settings = await request('/users/me/settings', accessToken)
-  const timeZone = settings?.timeZone || 'UTC'
+async function syncGoogleFitSteps(accessToken, selectedDate, timeZone = 'UTC') {
   const trendStart = shiftIso(selectedDate, -13)
   const dayAfter = shiftIso(selectedDate, 1)
   const trendStartMillis = zonedMidnightMillis(trendStart, timeZone)
@@ -347,15 +353,15 @@ function fitBucketSummary(payload, timeZone) {
   }).filter(Boolean)
 }
 
-async function auditGoogleFitSteps(accessToken, selectedDate) {
-  const settings = await request('/users/me/settings', accessToken)
+async function auditGoogleFitSteps(healthAccessToken, fitAccessToken, selectedDate) {
+  const settings = await request('/users/me/settings', healthAccessToken)
   const timeZone = settings?.timeZone || 'UTC'
   const startTimeMillis = zonedMidnightMillis(selectedDate, timeZone)
   const endTimeMillis = zonedMidnightMillis(shiftIso(selectedDate, 1), timeZone)
-  const sourcePayload = await request(`${GOOGLE_FIT_API_BASE}/users/me/dataSources?dataTypeName=com.google.step_count.delta`, accessToken)
+  const sourcePayload = await request(`${GOOGLE_FIT_API_BASE}/users/me/dataSources?dataTypeName=com.google.step_count.delta`, fitAccessToken)
   const aggregate = async (aggregateBy, bucketByTime) => {
     try {
-      return await googleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime, aggregateBy)
+      return await googleFitAggregate(fitAccessToken, startTimeMillis, endTimeMillis, bucketByTime, aggregateBy)
     } catch (error) {
       return { error: { status: error.status ?? null, message: error.message || 'Google Fit request failed.' } }
     }
@@ -389,7 +395,7 @@ async function auditGoogleFitSteps(accessToken, selectedDate) {
   }
 }
 
-async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () => {}) {
+async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () => {}, googleFitAccessToken = null) {
   const trendStart = shiftIso(selectedDate, -13)
   const dayAfter = shiftIso(selectedDate, 1)
   const ecgStart = shiftIso(selectedDate, -90)
@@ -399,7 +405,10 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     ['settingsRaw', () => request('/users/me/settings', accessToken)],
     ['devicesRaw', () => request('/users/me/pairedDevices?pageSize=100', accessToken)],
     ['userInfo', () => request('https://www.googleapis.com/oauth2/v3/userinfo', accessToken)],
-    ['googleFitSteps', () => syncGoogleFitSteps(accessToken, selectedDate)],
+    ...(googleFitAccessToken ? [['googleFitSteps', async () => {
+      const settings = await request('/users/me/settings', accessToken)
+      return syncGoogleFitSteps(googleFitAccessToken, selectedDate, settings?.timeZone || 'UTC')
+    }]] : []),
     ['stepsDaily', () => dailyRollup(accessToken, 'steps', trendStart, dayAfter)],
     ['caloriesDaily', () => dailyRollup(accessToken, 'total-calories', trendStart, dayAfter)],
     ['distanceDaily', () => dailyRollup(accessToken, 'distance', trendStart, dayAfter)],
@@ -850,9 +859,11 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
 
 module.exports = {
   provider: 'google-health',
-  scopes: SCOPES,
+  scopes: HEALTH_SCOPES,
+  googleFitScopes: GOOGLE_FIT_SCOPES,
   createPkce,
   createAuthorizationUrl,
+  createGoogleFitAuthorizationUrl,
   exchangeAuthorizationCode,
   refreshAccessToken,
   revokeToken,

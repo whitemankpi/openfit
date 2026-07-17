@@ -38,6 +38,13 @@ const bridge: FitbitBridge = {
     void watchOAuth(result.sequence)
     return { ok: true }
   },
+  connectGoogleFit: async () => {
+    const result = await request<{ ok: boolean; url: string; sequence: number }>('/api/google-fit/oauth/start', { method: 'POST' })
+    const popup = window.open(result.url, 'openfit-google-fit-oauth', 'popup,width=620,height=760')
+    if (!popup) throw new Error('Allow pop-ups for OpenFit to connect Google Fit.')
+    void watchOAuth(result.sequence)
+    return { ok: true }
+  },
   disconnect: () => request('/api/disconnect', { method: 'POST' }),
   sync: async (date) => {
     syncListeners.forEach((listener) => listener({ completed: 0, total: 0, key: '', date }))

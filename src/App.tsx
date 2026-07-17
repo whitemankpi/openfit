@@ -308,6 +308,19 @@ export default function App() {
     }
   }
 
+  const connectGoogleFit = async () => {
+    if (!window.fitbit) return
+    setConnecting(true)
+    try {
+      const result = await window.fitbit.connectGoogleFit()
+      if (!result.ok) throw new Error(result.message ?? 'Unable to start Google Fit OAuth.')
+      setToast({ tone: 'neutral', message: 'Authorize Google Fit step access in your browser.' })
+    } catch (error) {
+      setConnecting(false)
+      setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Google Fit connection failed.' })
+    }
+  }
+
   const saveAndConnect = async (config: FitbitConfigInput) => {
     if (!window.fitbit) return
     try {
@@ -507,6 +520,7 @@ export default function App() {
         onOpenChange={setSettingsOpen}
         onSave={saveAndConnect}
         onConnect={connect}
+        onConnectGoogleFit={connectGoogleFit}
         onExport={exportData}
         onDisconnect={disconnect}
       />
@@ -658,6 +672,7 @@ function SettingsDialog({
   onOpenChange,
   onSave,
   onConnect,
+  onConnectGoogleFit,
   onExport,
   onDisconnect,
 }: {
@@ -667,6 +682,7 @@ function SettingsDialog({
   onOpenChange: (open: boolean) => void
   onSave: (config: FitbitConfigInput) => Promise<void>
   onConnect: () => Promise<void>
+  onConnectGoogleFit: () => Promise<void>
   onExport: () => Promise<void>
   onDisconnect: () => Promise<void>
 }) {
@@ -724,9 +740,15 @@ function SettingsDialog({
         {status.connected && !editing ? (
           <div className="connected-state">
             <div className="connection-check"><CheckIcon /></div>
-            <div><h3>Sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.{status.provider === 'google-health' ? status.googleFitAuthorized ? ' Google Fit step access is active.' : ' Reauthorize to add Google Fit steps.' : ''}</p></div>
+            <div><h3>Sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.{status.provider === 'google-health' ? status.googleFitAuthorized ? ' Google Fit step access is active.' : ' Authorize Google Fit steps separately below.' : ''}</p></div>
             <div className="connected-actions">
-              <Button onClick={onConnect} disabled={connecting}>{connecting ? <LoaderCircle className="spin" /> : <RefreshCw />} Reauthorize</Button>
+              <Button onClick={onConnect} disabled={connecting}>{connecting ? <LoaderCircle className="spin" /> : <RefreshCw />} Reauthorize Google Health</Button>
+              {status.provider === 'google-health' && (
+                <Button variant="outline" onClick={onConnectGoogleFit} disabled={connecting}>
+                  {connecting ? <LoaderCircle className="spin" /> : <ActivityIcon />}
+                  {status.googleFitAuthorized ? 'Reauthorize Google Fit steps' : 'Authorize Google Fit steps'}
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setEditing(true)}><SettingsIcon /> Edit configuration</Button>
               <Button variant="outline" onClick={() => void onExport()}><ExportIcon /> Export data</Button>
               <Button variant="destructive" onClick={() => void onDisconnect()}><DisconnectIcon /> Disconnect and delete local data</Button>

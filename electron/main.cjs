@@ -99,10 +99,12 @@ function publicStatus() {
   const config = credentials.config || {}
   const provider = PROVIDERS[config.provider] ? config.provider : 'google-health'
   const needsSecret = provider === 'google-health'
+  const healthTokenHasFitScope = String(credentials.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')
   return {
     isElectron: true,
     configured: Boolean(config.clientId && config.redirectUri && (!needsSecret || config.clientSecret)),
-    connected: Boolean(credentials.token?.access_token || credentials.token?.refresh_token),
+    connected: (provider !== 'google-health' || !healthTokenHasFitScope)
+      && Boolean(credentials.token?.access_token || credentials.token?.refresh_token),
     clientId: config.clientId || '',
     redirectUri: config.redirectUri || DEFAULT_REDIRECT_URI,
     hasClientSecret: Boolean(config.clientSecret),
@@ -110,7 +112,7 @@ function publicStatus() {
     lastSyncAt: credentials.lastSyncAt || null,
     provider,
     googleFitAuthorized: provider === 'google-health'
-      && String(credentials.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
+      && String(credentials.googleFitToken?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
   }
 }
 
@@ -155,12 +157,15 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character])
 }
 
-async function startOAuthFlow() {
+async function startOAuthFlow(purpose = 'health') {
   if (oauthServer) throw new Error('A connection process is already in progress.')
   const credentials = getCredentials()
   const status = publicStatus()
   if (!status.configured) throw new Error('Complete the OAuth configuration first.')
   const service = providerFor(credentials)
+  if (purpose === 'google-fit' && (service.provider !== 'google-health' || !status.connected)) {
+    throw new Error('Connect Google Health before authorizing Google Fit.')
+  }
   const redirect = new URL(credentials.config.redirectUri)
   const state = crypto.randomBytes(24).toString('hex')
   const pkce = service.createPkce()
@@ -193,8 +198,13 @@ async function startOAuthFlow() {
       }
       try {
         const token = await service.exchangeAuthorizationCode(credentials.config, code, pkce.verifier)
-        saveCredentials({ ...credentials, token, lastSyncAt: null })
-        deleteIfPresent(cacheFile)
+        if (purpose === 'health' && service.provider === 'google-health'
+          && String(token.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')) {
+          throw new Error('Google returned a combined token. Revoke OpenFit access in your Google Account and try again.')
+        }
+        saveCredentials(purpose === 'google-fit'
+          ? { ...credentials, googleFitToken: token, lastSyncAt: null }
+          : { ...credentials, token, lastSyncAt: null })
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
         response.end(oauthPage(true, service.provider === 'google-health' ? 'Google Health is ready.' : 'Fitbit legacy is ready.'))
         mainWindow?.webContents.send('fitbit:auth-complete', { ok: true })
@@ -219,7 +229,10 @@ async function startOAuthFlow() {
   }, 5 * 60_000)
 
   try {
-    await shell.openExternal(service.createAuthorizationUrl(credentials.config, state, pkce))
+    const authorizationUrl = purpose === 'google-fit'
+      ? service.createGoogleFitAuthorizationUrl(credentials.config, state, pkce)
+      : service.createAuthorizationUrl(credentials.config, state, pkce)
+    await shell.openExternal(authorizationUrl)
   } catch (error) {
     closeOAuthServer()
     throw error
@@ -229,12 +242,25 @@ async function startOAuthFlow() {
 
 async function validAccessToken(credentials) {
   if (!credentials.token) throw new Error('Account not connected.')
+  if (credentials.config?.provider === 'google-health'
+    && String(credentials.token.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read')) {
+    throw new Error('Reauthorize Google Health to replace the legacy combined OAuth token.')
+  }
   if (Number(credentials.token.expiresAt || 0) > Date.now() + 90_000 && credentials.token.access_token) {
     return credentials
   }
   const service = providerFor(credentials)
   const token = await service.refreshAccessToken(credentials.config, credentials.token)
   const updated = { ...credentials, token }
+  saveCredentials(updated)
+  return updated
+}
+
+async function validGoogleFitToken(credentials) {
+  if (!credentials.googleFitToken) return credentials
+  if (Number(credentials.googleFitToken.expiresAt || 0) > Date.now() + 90_000 && credentials.googleFitToken.access_token) return credentials
+  const googleFitToken = await googleHealth.refreshAccessToken(credentials.config, credentials.googleFitToken)
+  const updated = { ...credentials, googleFitToken }
   saveCredentials(updated)
   return updated
 }
@@ -250,9 +276,18 @@ async function syncData(date) {
   let credentials = getCredentials()
   credentials = await validAccessToken(credentials)
   const service = providerFor(credentials)
+  let googleFitAccessToken = null
+  if (service.provider === 'google-health' && credentials.googleFitToken) {
+    try {
+      credentials = await validGoogleFitToken(credentials)
+      googleFitAccessToken = credentials.googleFitToken.access_token
+    } catch (error) {
+      console.warn('Google Fit token refresh failed; syncing Google Health without Fit steps.', error)
+    }
+  }
   const payload = await service.syncData(credentials.token.access_token, date, (progress) => {
     mainWindow?.webContents.send('fitbit:sync-progress', { ...progress, date })
-  })
+  }, googleFitAccessToken)
   const total = Number(payload.requestStats?.total || 0)
   const succeeded = Number(payload.requestStats?.succeeded || 0)
   const successfulKeys = Array.isArray(payload.requestStats?.successfulKeys) ? payload.requestStats.successfulKeys : []
@@ -385,13 +420,17 @@ function registerIpc() {
     const config = validateConfig(input || {}, credentials.config)
     const oauthIdentityChanged = ['provider', 'clientId', 'clientSecret', 'redirectUri']
       .some((key) => String(credentials.config?.[key] || '') !== String(config[key] || ''))
-    saveCredentials({ ...credentials, config, token: oauthIdentityChanged ? null : credentials.token, lastSyncAt: oauthIdentityChanged ? null : credentials.lastSyncAt })
+    saveCredentials({ ...credentials, config, token: oauthIdentityChanged ? null : credentials.token, googleFitToken: oauthIdentityChanged ? null : credentials.googleFitToken, lastSyncAt: oauthIdentityChanged ? null : credentials.lastSyncAt })
     if (oauthIdentityChanged) deleteIfPresent(cacheFile)
     return publicStatus()
   })
   trustedHandle('fitbit:connect', () => {
     if (syncInFlight) throw new Error('Wait for the sync to finish before reconnecting the account.')
     return startOAuthFlow()
+  })
+  trustedHandle('fitbit:connect-google-fit', () => {
+    if (syncInFlight) throw new Error('Wait for the sync to finish before connecting Google Fit.')
+    return startOAuthFlow('google-fit')
   })
   trustedHandle('fitbit:disconnect', async () => {
     if (syncInFlight) throw new Error('Wait for the sync to finish before disconnecting the account.')
@@ -402,7 +441,12 @@ function registerIpc() {
       console.warn('Remote revocation failed; local credentials will still be deleted.', error)
     }
     try {
-      saveCredentials({ ...credentials, token: null, lastSyncAt: null })
+      await googleHealth.revokeToken(credentials.googleFitToken, credentials.config)
+    } catch (error) {
+      console.warn('Google Fit token revocation failed; local credentials will still be deleted.', error)
+    }
+    try {
+      saveCredentials({ ...credentials, token: null, googleFitToken: null, lastSyncAt: null })
     } catch {
       deleteIfPresent(credentialFile)
     }

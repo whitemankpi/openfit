@@ -27,3 +27,19 @@ describe.each([
     expect(url.toString()).not.toContain(config.clientSecret)
   })
 })
+
+describe('separate Google OAuth grants', () => {
+  it('never combines Google Health and Google Fit scopes', () => {
+    const pkce = google.createPkce()
+    const health = new URL(google.createAuthorizationUrl(config, 'health-state', pkce))
+    const fit = new URL(google.createGoogleFitAuthorizationUrl(config, 'fit-state', pkce))
+    const healthScopes = health.searchParams.get('scope')?.split(' ') ?? []
+    const fitScopes = fit.searchParams.get('scope')?.split(' ') ?? []
+
+    expect(healthScopes.some((scope: string) => scope.includes('/auth/googlehealth.'))).toBe(true)
+    expect(healthScopes).not.toContain('https://www.googleapis.com/auth/fitness.activity.read')
+    expect(fitScopes).toEqual(['https://www.googleapis.com/auth/fitness.activity.read'])
+    expect(health.searchParams.get('include_granted_scopes')).toBe('false')
+    expect(fit.searchParams.get('include_granted_scopes')).toBe('false')
+  })
+})

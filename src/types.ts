@@ -233,6 +233,7 @@ export interface FitbitBridge {
   getStatus: () => Promise<FitbitAuthStatus>
   saveConfig: (config: FitbitConfigInput) => Promise<FitbitAuthStatus>
   connect: () => Promise<{ ok: boolean; message?: string }>
+  connectGoogleFit: () => Promise<{ ok: boolean; message?: string }>
   disconnect: () => Promise<FitbitAuthStatus>
   sync: (date: string) => Promise<RawFitbitPayload>
   getCachedData: () => Promise<RawFitbitPayload | null>

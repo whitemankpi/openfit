@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('fitbit', Object.freeze({
   getStatus: () => ipcRenderer.invoke('fitbit:get-status'),
   saveConfig: (config) => ipcRenderer.invoke('fitbit:save-config', config),
   connect: () => ipcRenderer.invoke('fitbit:connect'),
+  connectGoogleFit: () => ipcRenderer.invoke('fitbit:connect-google-fit'),
   disconnect: () => ipcRenderer.invoke('fitbit:disconnect'),
   sync: (date) => ipcRenderer.invoke('fitbit:sync', date),
   getCachedData: () => ipcRenderer.invoke('fitbit:get-cached-data'),

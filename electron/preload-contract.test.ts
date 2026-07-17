@@ -46,6 +46,7 @@ describe('preload bridge contract', () => {
       'getStatus',
       'saveConfig',
       'connect',
+      'connectGoogleFit',
       'disconnect',
       'sync',
       'getCachedData',
@@ -59,6 +60,7 @@ describe('preload bridge contract', () => {
     expect(fitbit?.getStatus()).toMatchObject({ channel: 'fitbit:get-status' })
     expect(fitbit?.saveConfig({ clientId: 'id' })).toMatchObject({ channel: 'fitbit:save-config', args: [{ clientId: 'id' }] })
     expect(fitbit?.connect()).toMatchObject({ channel: 'fitbit:connect' })
+    expect(fitbit?.connectGoogleFit()).toMatchObject({ channel: 'fitbit:connect-google-fit' })
     expect(fitbit?.disconnect()).toMatchObject({ channel: 'fitbit:disconnect' })
     expect(fitbit?.sync('2026-06-22')).toMatchObject({ channel: 'fitbit:sync', args: ['2026-06-22'] })
     expect(fitbit?.getCachedData()).toMatchObject({ channel: 'fitbit:get-cached-data' })
@@ -83,7 +85,7 @@ describe('preload bridge contract', () => {
     expect(handleSyncProgress).toHaveBeenCalledWith({ completed: 1, total: 2, key: 'steps' })
     unsubscribeSync()
     expect(removeListener).toHaveBeenCalledWith('fitbit:sync-progress', syncListener)
-    expect(invoke).toHaveBeenCalledTimes(9)
+    expect(invoke).toHaveBeenCalledTimes(10)
   })
 
   it('exposes the expected health assistant bridge methods and IPC channels', () => {
