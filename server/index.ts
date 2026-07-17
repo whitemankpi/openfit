@@ -65,6 +65,8 @@ function publicStatus() {
     storageEncrypted: true,
     lastSyncAt: value.lastSyncAt,
     provider: value.config.provider,
+    googleFitAuthorized: value.config.provider === 'google-health'
+      && String(value.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
   }
 }
 
@@ -211,6 +213,14 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     if (syncInFlight) throw new Error('A sync is already in progress.')
     syncInFlight = syncData(date)
     try { return json(response, 200, await syncInFlight), true } finally { syncInFlight = null }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/google-fit/audit') {
+    const date = String((await body(request)).date || localIsoDate())
+    if (!validSyncDate(date)) throw new Error('Invalid audit date.')
+    const value = await accessCredentials()
+    const service = providerFor(value)
+    if (service.provider !== 'google-health' || typeof service.auditGoogleFitSteps !== 'function') throw new Error('Google Fit audit requires the Google Health provider.')
+    return json(response, 200, await service.auditGoogleFitSteps(value.token.access_token, date)), true
   }
   if (request.method === 'GET' && url.pathname === '/api/export') {
     const archive = healthCache.normalizeArchive(store.read('health-cache.json', null))

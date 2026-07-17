@@ -101,6 +101,7 @@ export interface DashboardData {
   } | null
   activity: {
     steps: number | null
+    stepsSource: 'google-fit' | 'google-health' | 'fitbit' | null
     stepsGoal: number | null
     calories: number | null
     caloriesGoal: number | null
@@ -218,6 +219,7 @@ export interface FitbitAuthStatus {
   storageEncrypted: boolean
   lastSyncAt: string | null
   provider: HealthProvider
+  googleFitAuthorized: boolean
 }
 
 export interface FitbitConfigInput {

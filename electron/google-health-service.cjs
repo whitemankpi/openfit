@@ -3,6 +3,7 @@
 const crypto = require('node:crypto')
 
 const API_BASE = 'https://health.googleapis.com/v4'
+const GOOGLE_FIT_API_BASE = 'https://www.googleapis.com/fitness/v1'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
@@ -18,7 +19,10 @@ const SCOPES = [
   'https://www.googleapis.com/auth/googlehealth.profile.readonly',
   'https://www.googleapis.com/auth/googlehealth.settings.readonly',
   'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
+  'https://www.googleapis.com/auth/fitness.activity.read',
 ]
+
+const GOOGLE_FIT_ESTIMATED_STEPS = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps'
 
 let nextApiRequestAt = 0
 
@@ -219,6 +223,172 @@ function dailyRollup(accessToken, type, start, end) {
   })
 }
 
+function zonedDateParts(value, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+  }
+}
+
+function zonedMidnightMillis(date, timeZone) {
+  const [year, month, day] = date.split('-').map(Number)
+  const target = Date.UTC(year, month - 1, day)
+  let candidate = target
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = zonedDateParts(candidate, timeZone)
+    const represented = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute)
+    candidate += target - represented
+  }
+  return candidate
+}
+
+function fitStepValue(bucket) {
+  const points = (bucket?.dataset || []).flatMap((dataset) => dataset?.point || [])
+  let present = false
+  let total = 0
+  for (const point of points) {
+    for (const value of point?.value || []) {
+      const parsed = numeric(value?.intVal ?? value?.fpVal)
+      if (parsed === null) continue
+      present = true
+      total += parsed
+    }
+  }
+  return { present, value: present ? total : null }
+}
+
+function fitPayloadHasSteps(payload) {
+  return (payload?.bucket || []).some((bucket) => fitStepValue(bucket).present)
+}
+
+function googleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime, aggregateBy) {
+  return request(`${GOOGLE_FIT_API_BASE}/users/me/dataset:aggregate`, accessToken, {
+    method: 'POST',
+    body: { startTimeMillis, endTimeMillis, aggregateBy: [aggregateBy], bucketByTime },
+  })
+}
+
+async function preferredGoogleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime) {
+  let estimated = null
+  try {
+    estimated = await googleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime, {
+      dataSourceId: GOOGLE_FIT_ESTIMATED_STEPS,
+    })
+  } catch (error) {
+    if (error.status === 401 || error.status === 403) throw error
+  }
+  if (fitPayloadHasSteps(estimated)) return { mode: 'estimated-steps', payload: estimated }
+  const aggregate = await googleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime, {
+    dataTypeName: 'com.google.step_count.delta',
+  })
+  return { mode: 'all-step-sources', payload: aggregate }
+}
+
+async function syncGoogleFitSteps(accessToken, selectedDate) {
+  const settings = await request('/users/me/settings', accessToken)
+  const timeZone = settings?.timeZone || 'UTC'
+  const trendStart = shiftIso(selectedDate, -13)
+  const dayAfter = shiftIso(selectedDate, 1)
+  const trendStartMillis = zonedMidnightMillis(trendStart, timeZone)
+  const selectedStartMillis = zonedMidnightMillis(selectedDate, timeZone)
+  const dayAfterMillis = zonedMidnightMillis(dayAfter, timeZone)
+  const [daily, hourly] = await Promise.all([
+    preferredGoogleFitAggregate(accessToken, trendStartMillis, dayAfterMillis, {
+      period: { type: 'day', value: 1, timeZoneId: timeZone },
+    }),
+    preferredGoogleFitAggregate(accessToken, selectedStartMillis, dayAfterMillis, { durationMillis: 60 * 60 * 1000 }),
+  ])
+  return { timeZone, daily, hourly }
+}
+
+function fitDailyMap(raw) {
+  const timeZone = raw?.timeZone || 'UTC'
+  return new Map((raw?.daily?.payload?.bucket || []).map((bucket) => {
+    const start = numeric(bucket.startTimeMillis)
+    const result = fitStepValue(bucket)
+    return [start === null ? null : zonedDateParts(start, timeZone).date, result.value]
+  }).filter(([date, value]) => date && value !== null))
+}
+
+function fitHourlyPoints(raw, selectedDate) {
+  const timeZone = raw?.timeZone || 'UTC'
+  return (raw?.hourly?.payload?.bucket || []).map((bucket) => {
+    const start = numeric(bucket.startTimeMillis)
+    const result = fitStepValue(bucket)
+    if (start === null || !result.present) return null
+    const local = zonedDateParts(start, timeZone)
+    if (local.date !== selectedDate) return null
+    return { time: local.time, value: result.value }
+  }).filter(Boolean).sort((left, right) => left.time.localeCompare(right.time))
+}
+
+function fitBucketSummary(payload, timeZone) {
+  return (payload?.bucket || []).map((bucket) => {
+    const start = numeric(bucket.startTimeMillis)
+    const result = fitStepValue(bucket)
+    if (start === null || !result.present) return null
+    const local = zonedDateParts(start, timeZone)
+    return { date: local.date, time: local.time, steps: result.value }
+  }).filter(Boolean)
+}
+
+async function auditGoogleFitSteps(accessToken, selectedDate) {
+  const settings = await request('/users/me/settings', accessToken)
+  const timeZone = settings?.timeZone || 'UTC'
+  const startTimeMillis = zonedMidnightMillis(selectedDate, timeZone)
+  const endTimeMillis = zonedMidnightMillis(shiftIso(selectedDate, 1), timeZone)
+  const sourcePayload = await request(`${GOOGLE_FIT_API_BASE}/users/me/dataSources?dataTypeName=com.google.step_count.delta`, accessToken)
+  const aggregate = async (aggregateBy, bucketByTime) => {
+    try {
+      return await googleFitAggregate(accessToken, startTimeMillis, endTimeMillis, bucketByTime, aggregateBy)
+    } catch (error) {
+      return { error: { status: error.status ?? null, message: error.message || 'Google Fit request failed.' } }
+    }
+  }
+  const modes = [
+    ['estimated-steps', { dataSourceId: GOOGLE_FIT_ESTIMATED_STEPS }],
+    ['all-step-sources', { dataTypeName: 'com.google.step_count.delta' }],
+  ]
+  const results = {}
+  await Promise.all(modes.map(async ([mode, aggregateBy]) => {
+    const [daily, hourly] = await Promise.all([
+      aggregate(aggregateBy, { period: { type: 'day', value: 1, timeZoneId: timeZone } }),
+      aggregate(aggregateBy, { durationMillis: 60 * 60 * 1000 }),
+    ])
+    results[mode] = {
+      daily: daily.error || fitBucketSummary(daily, timeZone),
+      hourly: hourly.error || fitBucketSummary(hourly, timeZone).filter((item) => item.date === selectedDate),
+    }
+  }))
+  return {
+    date: selectedDate,
+    timeZone,
+    sources: (sourcePayload?.dataSource || []).map((source) => ({
+      streamId: source.dataStreamId || null,
+      streamName: source.dataStreamName || null,
+      app: source.application?.name || null,
+      device: [source.device?.manufacturer, source.device?.model].filter(Boolean).join(' ') || null,
+      type: source.type || null,
+    })),
+    results,
+  }
+}
+
 async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () => {}) {
   const trendStart = shiftIso(selectedDate, -13)
   const dayAfter = shiftIso(selectedDate, 1)
@@ -229,6 +399,7 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     ['settingsRaw', () => request('/users/me/settings', accessToken)],
     ['devicesRaw', () => request('/users/me/pairedDevices?pageSize=100', accessToken)],
     ['userInfo', () => request('https://www.googleapis.com/oauth2/v3/userinfo', accessToken)],
+    ['googleFitSteps', () => syncGoogleFitSteps(accessToken, selectedDate)],
     ['stepsDaily', () => dailyRollup(accessToken, 'steps', trendStart, dayAfter)],
     ['caloriesDaily', () => dailyRollup(accessToken, 'total-calories', trendStart, dayAfter)],
     ['distanceDaily', () => dailyRollup(accessToken, 'distance', trendStart, dayAfter)],
@@ -413,7 +584,10 @@ function toLegacySleep(point) {
 function translateGoogleHealth(raw, selectedDate, now = new Date()) {
   const current = localDateAndTime(now)
   const isFutureTimeToday = (time) => selectedDate === current.date && time > current.time
-  const steps = dailyMap(raw.stepsDaily, (point) => numeric(point.steps?.countSum))
+  const googleHealthSteps = dailyMap(raw.stepsDaily, (point) => numeric(point.steps?.countSum))
+  const googleFitSteps = fitDailyMap(raw.googleFitSteps)
+  const steps = new Map(googleHealthSteps)
+  for (const [date, value] of googleFitSteps) steps.set(date, value)
   const calories = dailyMap(raw.caloriesDaily, (point) => numeric(point.totalCalories?.kcalSum))
   const distance = dailyMap(raw.distanceDaily, (point) => numeric(point.distance?.millimetersSum, (value) => value / 1_000_000))
   const floors = dailyMap(raw.floorsDaily, (point) => numeric(point.floors?.countSum))
@@ -502,7 +676,7 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
     if (moderate === null && vigorous === null) return null
     return (moderate || 0) + (vigorous || 0)
   }
-  const stepPoints = dataPoints(raw.stepsIntradayRaw).map((point) => {
+  const googleHealthStepPoints = dataPoints(raw.stepsIntradayRaw).map((point) => {
     const record = point.steps || {}
     const date = dateFromCivil(record.interval?.civilStartTime)
     if (date && date !== selectedDate) return null
@@ -510,6 +684,8 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
     if (time && isFutureTimeToday(time)) return null
     return { time, value: Number(record.count || 0) }
   }).filter((point) => point?.time).sort((a, b) => a.time.localeCompare(b.time))
+  const googleFitStepPoints = fitHourlyPoints(raw.googleFitSteps, selectedDate)
+  const stepPoints = googleFitStepPoints.length ? googleFitStepPoints : googleHealthStepPoints
   const heartPoints = dataPoints(raw.heartIntradayRaw).map((point) => {
     const record = point.heartRate || {}
     const date = dateFromCivil(record.sampleTime?.civilTime)
@@ -532,6 +708,11 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
     features: device.features,
   }))
   const todaySteps = selected(steps, selectedDate)
+  const stepsSource = googleFitSteps.has(selectedDate) || googleFitStepPoints.length
+    ? { provider: 'google-fit', mode: raw.googleFitSteps?.daily?.mode || raw.googleFitSteps?.hourly?.mode || null }
+    : todaySteps !== null || googleHealthStepPoints.length
+      ? { provider: 'google-health', mode: 'reconciled' }
+      : null
   const todayCalories = selected(calories, selectedDate)
   const todayDistance = selected(distance, selectedDate)
   const todayFloors = selected(floors, selectedDate)
@@ -599,6 +780,7 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
       activeZoneMinutes: { totalMinutes: todayZone },
       sedentaryMinutes: todaySedentary,
     } },
+    stepsSource,
     activityGoals: { goals: {} },
     stepsIntraday: { 'activities-steps-intraday': { dataset: stepPoints } },
     caloriesIntraday: { 'activities-calories-intraday': { dataset: [] } },
@@ -675,5 +857,6 @@ module.exports = {
   refreshAccessToken,
   revokeToken,
   syncData: syncGoogleHealthData,
-  __test: { translateGoogleHealth, dateFromCivil, durationSeconds },
+  auditGoogleFitSteps,
+  __test: { translateGoogleHealth, dateFromCivil, durationSeconds, fitStepValue, zonedMidnightMillis },
 }

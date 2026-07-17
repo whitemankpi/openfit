@@ -175,6 +175,7 @@ export function createDemoData(selectedDate = localIso()): DashboardData {
     },
     activity: {
       steps: latest.steps,
+      stepsSource: null,
       stepsGoal: 10_000,
       calories: latest.calories,
       caloriesGoal: 2_450,

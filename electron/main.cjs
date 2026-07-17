@@ -109,6 +109,8 @@ function publicStatus() {
     storageEncrypted: storageEncryptionAvailable(),
     lastSyncAt: credentials.lastSyncAt || null,
     provider,
+    googleFitAuthorized: provider === 'google-health'
+      && String(credentials.token?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
   }
 }
 

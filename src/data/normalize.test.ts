@@ -46,10 +46,12 @@ describe('normalizeFitbitData', () => {
       generatedAt: '2026-06-22T12:00:00.000Z',
       endpoints: {
         activity: { summary: {
+          steps: 6400,
           lightlyActiveMinutes: 41,
           fairlyActiveMinutes: 12,
           veryActiveMinutes: 22,
         } },
+        stepsSource: { provider: 'google-fit', mode: 'estimated-steps' },
         hrv: { hrv: [{ value: { dailyRmssd: 47, deepRmssd: 52.4, entropy: 4.8, nonRemHeartRate: 57 } }] },
         spo2: { value: { avg: 97.1, min: 95.8, max: 98.5 } },
         skinTemperature: { tempSkin: [{ value: {
@@ -100,6 +102,8 @@ describe('normalizeFitbitData', () => {
     const result = normalizeFitbitData(payload)
 
     expect(result.activity).toMatchObject({
+      steps: 6400,
+      stepsSource: 'google-fit',
       activeMinutes: 34,
       lightActiveMinutes: 41,
       moderateActiveMinutes: 12,

@@ -107,11 +107,12 @@ API configuration, OAuth consent, and OAuth credentials must all belong to the s
 3. For a personal account, leave **Organization** set to **No organization**.
 4. Create the project and select it from the project picker.
 
-### 2. Enable Google Health API
+### 2. Enable Google Health and Fitness APIs
 
 1. With the OpenFit project selected, open [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
 2. Click **Enable**.
 3. Wait until the page shows that the API is enabled or displays **Manage**.
+4. Open [Fitness API](https://console.cloud.google.com/apis/library/fitness.googleapis.com) in the same project and enable it. OpenFit uses its read-only activity scope to prefer visible Google Fit step totals when available.
 
 ### 3. Configure the OAuth consent screen
 
@@ -137,9 +138,12 @@ https://www.googleapis.com/auth/googlehealth.nutrition.readonly
 https://www.googleapis.com/auth/googlehealth.profile.readonly
 https://www.googleapis.com/auth/googlehealth.settings.readonly
 https://www.googleapis.com/auth/googlehealth.sleep.readonly
+https://www.googleapis.com/auth/fitness.activity.read
 ```
 
 Do not add write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar.
+
+Existing connections must be reauthorized after enabling the Fitness API and adding the activity scope. If Google Fit exposes no step bucket to the project, OpenFit safely falls back to Google Health steps.
 
 ### 5. Create the OAuth client
 

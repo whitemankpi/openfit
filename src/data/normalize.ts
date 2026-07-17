@@ -176,6 +176,7 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
   const devices = asArray(e.devices)
   const device = devices.find((item) => item.type === 'TRACKER') ?? devices[0] ?? null
   const activity = asObject(asObject(e.activity).summary)
+  const stepsSource = asObject(e.stepsSource)
   const stepsIntraday = readIntraday(e.stepsIntraday, 'activities-steps-intraday')
   const goals = asObject(asObject(e.activityGoals).goals)
   const heartSummary = asArray(asObject(e.heartIntraday)['activities-heart'])[0]?.value ?? {}
@@ -298,6 +299,13 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
       steps: numeric(activity?.steps) ?? (stepsIntraday.length
         ? stepsIntraday.reduce((sum, point) => sum + point.value, 0)
         : null),
+      stepsSource: stepsSource.provider === 'google-fit'
+        ? 'google-fit'
+        : stepsSource.provider === 'google-health'
+          ? 'google-health'
+          : payload.source === 'fitbit'
+            ? 'fitbit'
+            : null,
       stepsGoal: numeric(goals?.steps),
       calories: numeric(activity?.caloriesOut),
       caloriesGoal: numeric(goals?.caloriesOut),

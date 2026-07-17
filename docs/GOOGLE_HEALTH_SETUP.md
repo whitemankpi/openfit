@@ -29,11 +29,12 @@ OpenFit does not perform the first Bluetooth pairing and does not replace synchr
 
 From this point on, always verify that **OpenFit** is the selected project. The API, OAuth consent, and OAuth client must belong to the same project.
 
-## 2. Enable the Google Health API
+## 2. Enable the Google Health and Fitness APIs
 
 1. With the OpenFit project selected, open [Google Health API](https://console.cloud.google.com/apis/library/health.googleapis.com).
 2. Click **Enable**.
 3. Wait until **API enabled** appears or the button changes to **Manage**.
+4. Open [Fitness API](https://console.cloud.google.com/apis/library/fitness.googleapis.com) in the same project and click **Enable**. OpenFit uses it only for read-only Google Fit step aggregates and falls back to Google Health when no Fit data is visible.
 
 If **Manage** already appears, the API is enabled and you can continue.
 
@@ -81,9 +82,10 @@ https://www.googleapis.com/auth/googlehealth.nutrition.readonly
 https://www.googleapis.com/auth/googlehealth.profile.readonly
 https://www.googleapis.com/auth/googlehealth.settings.readonly
 https://www.googleapis.com/auth/googlehealth.sleep.readonly
+https://www.googleapis.com/auth/fitness.activity.read
 ```
 
-Do not select write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar.
+Do not select write scopes. OpenFit also requests the standard `openid` and `profile` scopes to display the account name and avatar. Reauthorize an existing OpenFit connection after adding the Google Fit activity scope.
 
 ## 6. Create the OAuth Client
 
@@ -148,9 +150,12 @@ The configuration is working when:
 - a last synchronization time appears;
 - the Devices page shows Fitbit Air or the paired tracker;
 - steps, heart rate, or sleep contain real data;
+- the Data page reports Google Fit as the step source when a Fit aggregate is available;
 - credentials and cache files in the app data folder are encrypted with `safeStorage`.
 
 Metric availability depends on the device, region, granted consent, and recent Fitbit mobile synchronization.
+
+For a read-only diagnostic that lists visible Google Fit step sources and daily/hourly aggregates without changing the cache, run `npm run audit:google-fit-steps -- YYYY-MM-DD` after reconnecting. For hosted OpenFit, also set `OPENFIT_AUDIT_URL`, `OPENFIT_USERNAME`, and `OPENFIT_PASSWORD`; the script calls the Basic-auth-protected `/api/google-fit/audit` endpoint.
 
 ## Troubleshooting
 
@@ -216,10 +221,12 @@ In Google OAuth `Testing` mode, refresh tokens normally expire after seven days.
 
 - [ ] `OpenFit` project created and selected
 - [ ] Google Health API enabled
+- [ ] Fitness API enabled
 - [ ] Google Auth Platform configured
 - [ ] Audience set to `External`
 - [ ] Fitbit account added as a test user
 - [ ] Google Health `.readonly` scopes added
+- [ ] Google Fit `fitness.activity.read` scope added
 - [ ] `OpenFit Desktop` client created as a web application
 - [ ] Local callback registered exactly
 - [ ] Client ID and Client Secret entered in OpenFit
@@ -231,5 +238,6 @@ In Google OAuth `Testing` mode, refresh tokens normally expire after seven days.
 - [Google Health API: Cloud and OAuth setup](https://developers.google.com/health/setup)
 - [Google Health API: scopes](https://developers.google.com/health/scopes)
 - [Google Health API: data types](https://developers.google.com/health/data-types)
+- [Google Fit REST aggregate endpoint](https://developers.google.com/fit/rest/v1/reference/users/dataset/aggregate)
 - [Google OAuth for web applications](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Google OAuth for desktop applications](https://developers.google.com/identity/protocols/oauth2/native-app)

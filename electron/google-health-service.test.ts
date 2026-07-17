@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const { __test } = require('./google-health-service.cjs') as {
-  __test: { translateGoogleHealth: (raw: Record<string, any>, date: string, now?: Date) => Record<string, any> }
+  __test: {
+    translateGoogleHealth: (raw: Record<string, any>, date: string, now?: Date) => Record<string, any>
+    zonedMidnightMillis: (date: string, timeZone: string) => number
+  }
 }
 
 const civil = (date: string) => {
@@ -155,6 +158,68 @@ describe('Google Health adapter', () => {
     expect(endpoints.activity.summary.steps).toBe(0)
     expect(endpoints.activity.summary.fairlyActiveMinutes).toBeNull()
     expect(endpoints.activity.summary.veryActiveMinutes).toBeNull()
+  })
+
+  it('prefers Google Fit steps over Google Health without adding the totals', () => {
+    const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
+    const endpoints = __test.translateGoogleHealth({
+      stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '1000' } })] },
+      stepsIntradayRaw: { dataPoints: [
+        { steps: { interval: { civilStartTime: { ...civil('2026-06-22'), time: { hours: 10 } } }, count: 150 } },
+      ] },
+      googleFitSteps: {
+        timeZone: 'Europe/Kyiv',
+        daily: { mode: 'estimated-steps', payload: { bucket: [{
+          startTimeMillis: String(midnight),
+          dataset: [{ point: [{ value: [{ intVal: 6400 }] }] }],
+        }] } },
+        hourly: { mode: 'estimated-steps', payload: { bucket: [
+          { startTimeMillis: String(midnight + 10 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 3100 }] }] }] },
+          { startTimeMillis: String(midnight + 11 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 3300 }] }] }] },
+        ] } },
+      },
+    }, '2026-06-22')
+
+    expect(endpoints.activity.summary.steps).toBe(6400)
+    expect(endpoints.stepsSource).toEqual({ provider: 'google-fit', mode: 'estimated-steps' })
+    expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([
+      { time: '10:00', value: 3100 },
+      { time: '11:00', value: 3300 },
+    ])
+    expect(endpoints.stepsTrend['activities-steps']).toContainEqual({ dateTime: '2026-06-22', value: 6400 })
+  })
+
+  it('falls back to Google Health for an empty Fit dataset but preserves a genuine Fit zero', () => {
+    const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
+    const fallback = __test.translateGoogleHealth({
+      stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '900' } })] },
+      googleFitSteps: {
+        timeZone: 'Europe/Kyiv',
+        daily: { mode: 'all-step-sources', payload: { bucket: [{ startTimeMillis: String(midnight), dataset: [] }] } },
+        hourly: { mode: 'all-step-sources', payload: { bucket: [] } },
+      },
+    }, '2026-06-22')
+    const zero = __test.translateGoogleHealth({
+      stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '900' } })] },
+      googleFitSteps: {
+        timeZone: 'Europe/Kyiv',
+        daily: { mode: 'all-step-sources', payload: { bucket: [{
+          startTimeMillis: String(midnight),
+          dataset: [{ point: [{ value: [{ intVal: 0 }] }] }],
+        }] } },
+        hourly: { mode: 'all-step-sources', payload: { bucket: [] } },
+      },
+    }, '2026-06-22')
+
+    expect(fallback.activity.summary.steps).toBe(900)
+    expect(fallback.stepsSource.provider).toBe('google-health')
+    expect(zero.activity.summary.steps).toBe(0)
+    expect(zero.stepsSource.provider).toBe('google-fit')
+  })
+
+  it('resolves civil midnight across Kyiv daylight-saving changes', () => {
+    expect(new Date(__test.zonedMidnightMillis('2026-01-15', 'Europe/Kyiv')).toISOString()).toBe('2026-01-14T22:00:00.000Z')
+    expect(new Date(__test.zonedMidnightMillis('2026-07-15', 'Europe/Kyiv')).toISOString()).toBe('2026-07-14T21:00:00.000Z')
   })
 
   it('aggregates raw oxygen saturation samples when the daily summary is absent', () => {

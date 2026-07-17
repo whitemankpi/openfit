@@ -376,9 +376,17 @@ export function TodayView({ data, navigate }: ViewProps) {
   const sleepGoalNote = data.sleep.totalMinutes === null ? 'Duration unavailable' : analysis.sleepGoalDifference === null
     ? baselineNote(analysis.sleep, 'min')
     : `${formatMinutes(analysis.sleepGoalDifference)} · goal`
-  const activityNote = analysis.stepsGoalProgress === null
+  const stepsSourceLabel = data.activity.stepsSource === 'google-fit'
+    ? 'Google Fit'
+    : data.activity.stepsSource === 'google-health'
+      ? 'Google Health'
+      : data.activity.stepsSource === 'fitbit'
+        ? 'Fitbit'
+        : null
+  const activityProgressNote = analysis.stepsGoalProgress === null
     ? baselineNote(analysis.steps, 'steps')
     : `${Math.round(analysis.stepsGoalProgress * 100)}% of goal`
+  const activityNote = stepsSourceLabel ? `${activityProgressNote} · ${stepsSourceLabel}` : activityProgressNote
   const sleepPrimaryValue = hasValue(data.sleep.totalMinutes)
     ? compactMinutes(data.sleep.totalMinutes)
     : hasValue(data.sleep.score)
@@ -922,8 +930,15 @@ function CoverageRow({ icon: Icon, label, items }: { icon: AppIcon; label: strin
 }
 
 export function DevicesView({ data, status }: ViewProps) {
+  const stepsSourceLabel = data.activity.stepsSource === 'google-fit'
+    ? 'Google Fit'
+    : data.activity.stepsSource === 'google-health'
+      ? 'Google Health'
+      : data.activity.stepsSource === 'fitbit'
+        ? 'Fitbit'
+        : null
   const movement = [
-    hasValue(data.activity.steps) && 'steps',
+    hasValue(data.activity.steps) && `steps${stepsSourceLabel ? ` · ${stepsSourceLabel}` : ''}`,
     data.activity.stepsIntraday.length > 0 && 'steps per hour',
     data.activities.length > 0 && `${data.activities.length} workouts`,
     hasValue(data.activity.activeMinutes) && 'active minutes',
@@ -1001,6 +1016,9 @@ export function DevicesView({ data, status }: ViewProps) {
       </div>
 
       {data.sync.errors.length > 0 && <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{data.sync.errors.length} sources returned no data for the selected period. Available measurements remain visible.</p></div>}
+      {!isDemo && status.provider === 'google-health' && (
+        <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{status.googleFitAuthorized ? 'Google Fit step access is authorized; Google Fit steps take priority when available.' : 'Reconnect Google Health to authorize direct Google Fit step access.'}</p></div>
+      )}
     </div>
   )
 }

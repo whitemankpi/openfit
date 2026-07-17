@@ -83,6 +83,7 @@ const defaultStatus: FitbitAuthStatus = {
   storageEncrypted: false,
   lastSyncAt: null,
   provider: 'google-health',
+  googleFitAuthorized: false,
 }
 
 interface ToastState {
@@ -723,7 +724,7 @@ function SettingsDialog({
         {status.connected && !editing ? (
           <div className="connected-state">
             <div className="connection-check"><CheckIcon /></div>
-            <div><h3>Sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.</p></div>
+            <div><h3>Sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.{status.provider === 'google-health' ? status.googleFitAuthorized ? ' Google Fit step access is active.' : ' Reauthorize to add Google Fit steps.' : ''}</p></div>
             <div className="connected-actions">
               <Button onClick={onConnect} disabled={connecting}>{connecting ? <LoaderCircle className="spin" /> : <RefreshCw />} Reauthorize</Button>
               <Button variant="outline" onClick={() => setEditing(true)}><SettingsIcon /> Edit configuration</Button>
