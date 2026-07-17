@@ -2,6 +2,19 @@ import type { FitbitBridge } from './types'
 
 const authListeners = new Set<Parameters<FitbitBridge['onAuthComplete']>[0]>()
 const syncListeners = new Set<Parameters<FitbitBridge['onSyncProgress']>[0]>()
+const dataListeners = new Set<Parameters<FitbitBridge['onDataUpdated']>[0]>()
+let dataEvents: EventSource | null = null
+
+function ensureDataEvents(): void {
+  if (dataEvents) return
+  dataEvents = new EventSource('/api/events', { withCredentials: true })
+  dataEvents.addEventListener('data-updated', (event) => {
+    try {
+      const payload = JSON.parse((event as MessageEvent).data)
+      dataListeners.forEach((listener) => listener(payload))
+    } catch { /* ignore malformed server events */ }
+  })
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -74,6 +87,17 @@ const bridge: FitbitBridge = {
   onSyncProgress: (callback) => {
     syncListeners.add(callback)
     return () => syncListeners.delete(callback)
+  },
+  onDataUpdated: (callback) => {
+    dataListeners.add(callback)
+    ensureDataEvents()
+    return () => {
+      dataListeners.delete(callback)
+      if (!dataListeners.size && dataEvents) {
+        dataEvents.close()
+        dataEvents = null
+      }
+    }
   },
 }
 

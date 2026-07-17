@@ -55,6 +55,7 @@ describe('preload bridge contract', () => {
       'openExternal',
       'onAuthComplete',
       'onSyncProgress',
+      'onDataUpdated',
     ]))
 
     expect(fitbit?.getStatus()).toMatchObject({ channel: 'fitbit:get-status' })
@@ -85,6 +86,15 @@ describe('preload bridge contract', () => {
     expect(handleSyncProgress).toHaveBeenCalledWith({ completed: 1, total: 2, key: 'steps' })
     unsubscribeSync()
     expect(removeListener).toHaveBeenCalledWith('fitbit:sync-progress', syncListener)
+
+    const handleDataUpdated = vi.fn()
+    const unsubscribeDataUpdated = fitbit?.onDataUpdated(handleDataUpdated) as () => void
+    const dataUpdatedListener = on.mock.calls.at(-1)?.[1]
+    expect(on.mock.calls.at(-1)?.[0]).toBe('fitbit:data-updated')
+    dataUpdatedListener('electron-event', { date: '2026-06-22', reason: 'manual' })
+    expect(handleDataUpdated).toHaveBeenCalledWith({ date: '2026-06-22', reason: 'manual' })
+    unsubscribeDataUpdated()
+    expect(removeListener).toHaveBeenCalledWith('fitbit:data-updated', dataUpdatedListener)
     expect(invoke).toHaveBeenCalledTimes(10)
   })
 

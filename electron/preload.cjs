@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('fitbit', Object.freeze({
   openExternal: (url) => ipcRenderer.invoke('fitbit:open-external', url),
   onAuthComplete: (callback) => subscribe('fitbit:auth-complete', callback),
   onSyncProgress: (callback) => subscribe('fitbit:sync-progress', callback),
+  onDataUpdated: (callback) => subscribe('fitbit:data-updated', callback),
 }))
 
 contextBridge.exposeInMainWorld('healthAssistant', Object.freeze({

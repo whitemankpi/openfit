@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-const { cachedDay, latestDay, normalizeArchive, storeDay } = require('./health-cache.cjs')
+const { cachedDay, latestDay, normalizeArchive, sameDayContent, storeDay } = require('./health-cache.cjs')
 
 const payload = (date: string) => ({ source: 'google-health', date, generatedAt: `${date}T12:00:00Z`, endpoints: {}, errors: [], rateLimit: {} })
 
@@ -22,5 +22,20 @@ describe('health history cache', () => {
     const updated = storeDay(first, { ...payload('2026-06-22'), generatedAt: 'new' })
     expect(cachedDay(updated, '2026-06-21')?.generatedAt).toBe('2026-06-21T12:00:00Z')
     expect(cachedDay(updated, '2026-06-22')?.generatedAt).toBe('new')
+    expect(latestDay(storeDay(updated, { ...payload('2026-06-21'), generatedAt: 'finalized' }))?.date).toBe('2026-06-22')
+  })
+
+  it('ignores volatile sync metadata when comparing day content', () => {
+    const original = { ...payload('2026-06-22'), endpoints: { steps: 6404, sleep: 470 }, requestStats: { successfulKeys: ['steps', 'sleep'] } }
+    const refreshed = {
+      ...original,
+      generatedAt: '2026-06-22T12:05:00Z',
+      cacheHit: true,
+      endpoints: { sleep: 470, steps: 6404 },
+      requestStats: { successfulKeys: ['sleep', 'steps'] },
+    }
+
+    expect(sameDayContent(original, refreshed)).toBe(true)
+    expect(sameDayContent(original, { ...refreshed, endpoints: { steps: 6561 } })).toBe(false)
   })
 })

@@ -299,7 +299,12 @@ async function syncData(date) {
   if (!total || succeeded < minimumUsefulResponses || !hasMeasurementResponse) {
     throw new Error('The sync did not return enough valid sources. The previous cache was preserved.')
   }
-  writeSecure(cacheFile, healthCache.storeDay(archive, payload))
+  const previous = healthCache.cachedDay(archive, date)
+  const changed = !healthCache.sameDayContent(previous, payload)
+  if (changed) {
+    writeSecure(cacheFile, healthCache.storeDay(archive, payload))
+    mainWindow?.webContents.send('fitbit:data-updated', { date, generatedAt: payload.generatedAt, reason: 'manual' })
+  }
   credentials.lastSyncAt = payload.generatedAt
   saveCredentials(credentials)
   return payload

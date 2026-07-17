@@ -29,10 +29,14 @@ const defaultCredentials: Credentials = {
   lastSyncAt: null,
 }
 const distDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist')
+const syncIntervalMs = 5 * 60_000
+const schedulerStateFile = 'sync-scheduler.json'
 
-let syncInFlight: Promise<any> | null = null
+type SyncResult = { payload: any; changed: boolean }
+let syncInFlight: Promise<SyncResult> | null = null
 let oauth: { state: string; verifier: string; createdAt: number; purpose: 'health' | 'google-fit' } | null = null
 let oauthResult: { sequence: number; ok: boolean; error?: string } = { sequence: 0, ok: false }
+const eventClients = new Set<ServerResponse>()
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim()
@@ -112,17 +116,22 @@ function localIsoDate(now = new Date()): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
+function shiftIsoDate(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day + days, 12)).toISOString().slice(0, 10)
+}
+
 function validSyncDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value > localIsoDate()) return false
   const parsed = new Date(`${value}T12:00:00Z`)
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
-async function syncData(date: string): Promise<any> {
+async function syncData(date: string, { force = false } = {}): Promise<SyncResult> {
   const archive = store.read<any>('health-cache.json', null)
-  if (date < localIsoDate()) {
+  if (!force && date < localIsoDate()) {
     const cached = healthCache.cachedDay(archive, date)
-    if (cached) return { ...cached, cacheHit: true }
+    if (cached) return { payload: { ...cached, cacheHit: true }, changed: false }
   }
   let value = await accessCredentials()
   const service = providerFor(value)
@@ -144,9 +153,66 @@ async function syncData(date: string): Promise<any> {
     : ['activity', 'stepsIntraday', 'stepsTrend', 'caloriesTrend', 'heartIntraday', 'heartTrend', 'sleep', 'sleepTrend', 'bodyWeight', 'bodyFat', 'food', 'water', 'breathing', 'hrv', 'spo2', 'skinTemperature', 'coreTemperature', 'cardio', 'ecg', 'irregularRhythmAlerts', 'bloodGlucose', 'activities']
   const hasMeasurements = successfulKeys.some((key: string) => measurementKeys.includes(key))
   if (!total || succeeded < Math.max(3, Math.ceil(total * 0.2)) || !hasMeasurements) throw new Error('The sync did not return enough valid sources. The previous cache was preserved.')
-  store.write('health-cache.json', healthCache.storeDay(archive, payload))
+  const previous = healthCache.cachedDay(archive, date)
+  const changed = !healthCache.sameDayContent(previous, payload)
+  if (changed) store.write('health-cache.json', healthCache.storeDay(archive, payload))
   store.write('credentials.json', { ...value, lastSyncAt: payload.generatedAt })
-  return payload
+  return { payload, changed }
+}
+
+function broadcastDataUpdate(date: string, generatedAt: string | null, reason: string): void {
+  const message = `event: data-updated\ndata: ${JSON.stringify({ date, generatedAt, reason })}\n\n`
+  for (const client of eventClients) {
+    try { client.write(message) } catch { eventClients.delete(client) }
+  }
+}
+
+function eventStream(request: IncomingMessage, response: ServerResponse): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  })
+  response.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`)
+  eventClients.add(response)
+  request.on('close', () => eventClients.delete(response))
+}
+
+async function runExclusiveSync(date: string, force: boolean, reason: string): Promise<any> {
+  if (syncInFlight) throw new Error('A sync is already in progress.')
+  syncInFlight = syncData(date, { force })
+  try {
+    const result = await syncInFlight
+    if (result.changed) broadcastDataUpdate(date, result.payload.generatedAt || null, reason)
+    return result.payload
+  } finally {
+    syncInFlight = null
+  }
+}
+
+async function runScheduledSync(): Promise<void> {
+  if (syncInFlight || !publicStatus().connected) return
+  const today = localIsoDate()
+  const yesterday = shiftIsoDate(today, -1)
+  const schedulerState = store.read<{ lastFinalizedDate?: string }>(schedulerStateFile, {})
+
+  if (schedulerState.lastFinalizedDate !== yesterday) {
+    try {
+      await runExclusiveSync(yesterday, true, 'nightly-finalization')
+      store.write(schedulerStateFile, { ...schedulerState, lastFinalizedDate: yesterday })
+    } catch (error) {
+      console.error('Nightly OpenFit sync failed.', error)
+      return
+    }
+  }
+
+  if (syncInFlight) return
+  try {
+    await runExclusiveSync(today, true, 'scheduled')
+  } catch (error) {
+    console.error('Scheduled OpenFit sync failed.', error)
+  }
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -209,6 +275,7 @@ async function handleOAuthCallback(url: URL, response: ServerResponse): Promise<
 async function api(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   if (!url.pathname.startsWith('/api/')) return false
   if (request.method === 'GET' && url.pathname === '/api/status') return json(response, 200, publicStatus()), true
+  if (request.method === 'GET' && url.pathname === '/api/events') return eventStream(request, response), true
   if (request.method === 'GET' && url.pathname === '/api/cache') return json(response, 200, healthCache.latestDay(store.read('health-cache.json', null))), true
   if (request.method === 'GET' && url.pathname === '/api/archive') return json(response, 200, healthCache.normalizeArchive(store.read('health-cache.json', null))), true
   if (request.method === 'GET' && url.pathname === '/api/oauth/status') return json(response, 200, oauthResult), true
@@ -247,9 +314,7 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (request.method === 'POST' && url.pathname === '/api/sync') {
     const date = String((await body(request)).date || '')
     if (!validSyncDate(date)) throw new Error('Invalid sync date.')
-    if (syncInFlight) throw new Error('A sync is already in progress.')
-    syncInFlight = syncData(date)
-    try { return json(response, 200, await syncInFlight), true } finally { syncInFlight = null }
+    return json(response, 200, await runExclusiveSync(date, false, 'manual')), true
   }
   if (request.method === 'POST' && url.pathname === '/api/google-fit/audit') {
     const date = String((await body(request)).date || localIsoDate())
@@ -302,4 +367,17 @@ const server = http.createServer(async (request, response) => {
   }
 })
 
-server.listen(port, '0.0.0.0', () => console.log(`OpenFit web listening on port ${port}`))
+server.listen(port, '0.0.0.0', () => {
+  console.log(`OpenFit web listening on port ${port}`)
+  const initialSync = setTimeout(() => void runScheduledSync(), 15_000)
+  const scheduler = setInterval(() => void runScheduledSync(), syncIntervalMs)
+  initialSync.unref()
+  scheduler.unref()
+})
+
+const heartbeat = setInterval(() => {
+  for (const client of eventClients) {
+    try { client.write(': keep-alive\n\n') } catch { eventClients.delete(client) }
+  }
+}, 25_000)
+heartbeat.unref()

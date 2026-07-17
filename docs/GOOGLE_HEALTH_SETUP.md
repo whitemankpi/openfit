@@ -157,6 +157,8 @@ The configuration is working when:
 
 Metric availability depends on the device, region, granted consent, and recent Fitbit mobile synchronization.
 
+Hosted OpenFit performs a full Google Health and Google Fit refresh every five minutes. It also finalizes the previous day once after midnight, including after a container restart, and sends live updates to open browser sessions through an authenticated server-sent event stream. Repeated identical API results do not rewrite the encrypted archive.
+
 For a read-only diagnostic that lists visible Google Fit step sources and daily/hourly aggregates without changing the cache, run `npm run audit:google-fit-steps -- YYYY-MM-DD` after reconnecting. For hosted OpenFit, also set `OPENFIT_AUDIT_URL`, `OPENFIT_USERNAME`, and `OPENFIT_PASSWORD`; the script calls the Basic-auth-protected `/api/google-fit/audit` endpoint.
 
 ## Troubleshooting

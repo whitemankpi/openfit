@@ -36,11 +36,32 @@ function latestDay(value) {
 
 function storeDay(value, payload) {
   const archive = normalizeArchive(value)
+  const lastDate = [archive.lastDate, payload.date].filter(Boolean).sort().at(-1) || null
   return {
     version: CACHE_VERSION,
-    lastDate: payload.date,
+    lastDate,
     days: { ...archive.days, [payload.date]: payload },
   }
 }
 
-module.exports = { CACHE_VERSION, normalizeArchive, cachedDay, latestDay, storeDay }
+function comparableDay(payload) {
+  if (!payload || typeof payload !== 'object') return payload
+  const { generatedAt: _generatedAt, cacheHit: _cacheHit, ...content } = payload
+  if (Array.isArray(content.errors)) content.errors = [...content.errors].sort((left, right) => String(left?.key || '').localeCompare(String(right?.key || '')))
+  if (Array.isArray(content.requestStats?.successfulKeys)) {
+    content.requestStats = { ...content.requestStats, successfulKeys: [...content.requestStats.successfulKeys].sort() }
+  }
+  return content
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]))
+}
+
+function sameDayContent(left, right) {
+  return JSON.stringify(canonicalize(comparableDay(left))) === JSON.stringify(canonicalize(comparableDay(right)))
+}
+
+module.exports = { CACHE_VERSION, normalizeArchive, cachedDay, latestDay, storeDay, sameDayContent }

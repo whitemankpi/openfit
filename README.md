@@ -81,6 +81,8 @@ OAuth client and register exactly `${APP_BASE_URL}/oauth/callback` as an authori
 redirect URI. Back up the `openfit-data` volume and the encryption key together;
 the stored data cannot be recovered without that key.
 
+The hosted server refreshes the current day every five minutes while the account is connected. After a date rollover it force-refreshes the previous day once to capture delayed mobile uploads, and persists that finalization state across container restarts. Cache writes and browser notifications occur only when the normalized day content changes. Open browser sessions receive authenticated server-sent events and update the selected day automatically.
+
 Set `TZ` in `.env` to the timezone used by the connected health account (for
 example, `Europe/Kyiv`). This keeps the server's current-day validation aligned
 with the browser and Google Health civil dates around midnight.

@@ -242,6 +242,7 @@ export interface FitbitBridge {
   openExternal: (url: string) => Promise<void>
   onAuthComplete: (callback: (result: { ok: boolean; error?: string }) => void) => () => void
   onSyncProgress: (callback: (progress: { completed: number; total: number; key: string; date?: string }) => void) => () => void
+  onDataUpdated: (callback: (event: { date: string; generatedAt?: string | null; reason?: string }) => void) => () => void
 }
 
 export interface HealthAssistantStatus {

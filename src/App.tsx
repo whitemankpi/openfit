@@ -240,8 +240,9 @@ export default function App() {
 
   useEffect(() => {
     void loadNativeState()
-    if (!window.fitbit) return
-    const unsubscribeAuth = window.fitbit.onAuthComplete(async (result) => {
+    const bridge = window.fitbit
+    if (!bridge) return
+    const unsubscribeAuth = bridge.onAuthComplete(async (result) => {
       setConnecting(false)
       if (!result.ok) {
         setToast({ tone: 'error', message: result.error ?? 'Authorization failed.' })
@@ -255,14 +256,31 @@ export default function App() {
       setSelectedDate(authDate)
       void runSync(authDate)
     })
-    const unsubscribeSync = window.fitbit.onSyncProgress((progress) => {
+    const unsubscribeSync = bridge.onSyncProgress((progress) => {
       if (syncingRef.current && (!progress.date || progress.date === syncTargetDateRef.current)) {
         setSyncProgress(progress)
+      }
+    })
+    const unsubscribeDataUpdated = bridge.onDataUpdated(async (event) => {
+      try {
+        const nextStatus = await bridge.getStatus()
+        setStatus(nextStatus)
+        if (event.date !== selectedDateRef.current || syncingRef.current) return
+        const archive = await bridge.getCachedArchive()
+        const cached = archive.days[event.date]
+        if (!cached) return
+        const normalized = normalizeFitbitData(cached)
+        dataDateRef.current = normalized.selectedDate
+        setData({ ...normalized, source: 'cache' })
+        setToast({ tone: 'success', message: 'New health data arrived automatically.' })
+      } catch (error) {
+        console.warn('Unable to apply the background health update.', error)
       }
     })
     return () => {
       unsubscribeAuth()
       unsubscribeSync()
+      unsubscribeDataUpdated()
     }
   }, [loadNativeState, runSync])
 
