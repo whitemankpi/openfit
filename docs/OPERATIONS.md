@@ -150,8 +150,8 @@ Commit `3195308` introduced production background synchronization:
 
 - Full Google Health and Google Fit refresh every five minutes.
 - Initial background cycle 15 seconds after server start.
-- One forced refresh of yesterday after each date rollover or restart.
-- Finalization state persisted in encrypted `sync-scheduler.json`.
+- Forced refresh of yesterday and the day before once per hour and after a restart, so delayed upstream data can revise recent history.
+- Recent-history refresh state persisted in encrypted `sync-scheduler.json`.
 - Idempotent cache writes: volatile timestamps and response ordering do not trigger false updates.
 - Authenticated SSE endpoint: `GET /api/events`.
 - Open web clients reload the selected cached date after a `data-updated` event.

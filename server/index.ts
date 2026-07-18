@@ -5,6 +5,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { EncryptedStore } from './storage.js'
+import { historySyncDue, type SyncSchedulerState } from './sync-scheduler.js'
 
 const require = createRequire(import.meta.url)
 const googleHealth = require(path.resolve('electron/google-health-service.cjs'))
@@ -195,24 +196,28 @@ async function runScheduledSync(): Promise<void> {
   if (syncInFlight || !publicStatus().connected) return
   const today = localIsoDate()
   const yesterday = shiftIsoDate(today, -1)
-  const schedulerState = store.read<{ lastFinalizedDate?: string }>(schedulerStateFile, {})
+  const schedulerState = store.read<SyncSchedulerState>(schedulerStateFile, {})
 
-  if (schedulerState.lastFinalizedDate !== yesterday) {
-    try {
-      await runExclusiveSync(yesterday, true, 'nightly-finalization')
-      store.write(schedulerStateFile, { ...schedulerState, lastFinalizedDate: yesterday })
-    } catch (error) {
-      console.error('Nightly OpenFit sync failed.', error)
-      return
-    }
-  }
-
-  if (syncInFlight) return
   try {
     await runExclusiveSync(today, true, 'scheduled')
   } catch (error) {
     console.error('Scheduled OpenFit sync failed.', error)
   }
+
+  if (!historySyncDue(schedulerState)) return
+  for (const daysAgo of [-2, -1]) {
+    const date = shiftIsoDate(today, daysAgo)
+    try {
+      await runExclusiveSync(date, true, 'recent-history')
+    } catch (error) {
+      console.error(`Recent OpenFit history sync failed for ${date}.`, error)
+    }
+  }
+  store.write(schedulerStateFile, {
+    ...schedulerState,
+    lastFinalizedDate: yesterday,
+    lastHistorySyncAt: new Date().toISOString(),
+  })
 }
 
 function authorized(request: IncomingMessage): boolean {
