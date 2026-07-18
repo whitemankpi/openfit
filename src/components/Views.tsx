@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import type { ActivityItem, DashboardData, FitbitAuthStatus, PageId, TimePoint } from '@/types'
@@ -556,11 +556,26 @@ export function TodayView({ data, navigate }: ViewProps) {
   )
 }
 
+type ActivityHistoryMetric = 'steps' | 'activeMinutes' | 'distanceKm' | 'calories'
+
 export function ActivityView({ data }: ViewProps) {
-  const stepValues = data.trends.map((point) => point.steps)
-  const validSteps = stepValues.filter(hasValue)
-  const averageSteps = validSteps.length ? validSteps.reduce((sum, value) => sum + value, 0) / validSteps.length : null
+  const [historyMetric, setHistoryMetric] = useState<ActivityHistoryMetric>('steps')
   const stepsByHour = hourlyBuckets(data.activity.stepsIntraday)
+  const history = {
+    steps: { label: 'Daily steps', icon: StepsIcon, values: data.trends.map((point) => point.steps), target: data.activity.stepsGoal, formatter: (value: number) => `${formatNumber(value)} steps` },
+    activeMinutes: { label: 'Active minutes', icon: ActiveIcon, values: data.trends.map((point) => point.activeMinutes), target: data.activity.activeMinutesGoal, formatter: (value: number) => `${formatNumber(value)} min` },
+    distanceKm: { label: 'Distance', icon: DistanceIcon, values: data.trends.map((point) => point.distanceKm), target: data.activity.distanceGoalKm, formatter: (value: number) => `${formatDecimal(value)} km` },
+    calories: { label: 'Calories burned', icon: CaloriesIcon, values: data.trends.map((point) => point.calories), target: data.activity.caloriesGoal, formatter: (value: number) => `${formatNumber(value)} kcal` },
+  } satisfies Record<ActivityHistoryMetric, { label: string; icon: AppIcon; values: Array<number | null>; target: number | null; formatter: (value: number) => string }>
+  const selectedHistory = history[historyMetric]
+  const selectedHistoryValues = selectedHistory.values.filter(hasValue)
+  const selectedHistoryAverage = selectedHistoryValues.length
+    ? selectedHistoryValues.reduce((sum, value) => sum + value, 0) / selectedHistoryValues.length
+    : null
+  const openHistory = (metric: ActivityHistoryMetric) => {
+    setHistoryMetric(metric)
+    requestAnimationFrame(() => document.getElementById('activity-metric-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
   const supporting = [
     hasValue(data.activity.floors) ? { label: 'Floors', value: formatNumber(data.activity.floors), icon: FloorsIcon } : null,
     hasValue(data.activity.lightActiveMinutes) ? { label: 'Light activity', value: formatNumber(data.activity.lightActiveMinutes), unit: 'min', icon: ActivityIcon } : null,
@@ -570,9 +585,6 @@ export function ActivityView({ data }: ViewProps) {
     hasValue(data.activity.sedentaryMinutes) ? { label: 'Sedentary time', value: formatNumber(data.activity.sedentaryMinutes), unit: 'min', icon: DurationIcon } : null,
   ].filter((item): item is SupportingMetric => item !== null)
   const activityTrendValues = [
-    data.trends.map((point) => point.calories),
-    data.trends.map((point) => point.distanceKm),
-    data.trends.map((point) => point.activeMinutes),
     data.trends.map((point) => point.zoneMinutes),
     data.trends.map((point) => point.sedentaryMinutes),
     data.trends.map((point) => point.floors),
@@ -582,11 +594,28 @@ export function ActivityView({ data }: ViewProps) {
   return (
     <div className="page-stack activity-page">
       <div className="metric-grid activity-primary-metrics">
-        <MetricTile label="Steps" value={data.activity.steps} goal={data.activity.stepsGoal} icon={StepsIcon} />
-        <MetricTile label="Active minutes" value={data.activity.activeMinutes} goal={data.activity.activeMinutesGoal} unit=" min" icon={ActiveIcon} />
-        <MetricTile label="Distance" value={data.activity.distanceKm} goal={data.activity.distanceGoalKm} unit=" km" icon={DistanceIcon} decimals={1} />
-        <MetricTile label="Calories" value={data.activity.calories} goal={data.activity.caloriesGoal} unit=" kcal" icon={CaloriesIcon} />
+        <MetricTile label="Steps" value={data.activity.steps} goal={data.activity.stepsGoal} icon={StepsIcon} onClick={() => openHistory('steps')} selected={historyMetric === 'steps'} />
+        <MetricTile label="Active minutes" value={data.activity.activeMinutes} goal={data.activity.activeMinutesGoal} unit=" min" icon={ActiveIcon} onClick={() => openHistory('activeMinutes')} selected={historyMetric === 'activeMinutes'} />
+        <MetricTile label="Distance" value={data.activity.distanceKm} goal={data.activity.distanceGoalKm} unit=" km" icon={DistanceIcon} decimals={1} onClick={() => openHistory('distanceKm')} selected={historyMetric === 'distanceKm'} />
+        <MetricTile label="Calories" value={data.activity.calories} goal={data.activity.caloriesGoal} unit=" kcal" icon={CaloriesIcon} onClick={() => openHistory('calories')} selected={historyMetric === 'calories'} />
       </div>
+
+      <section id="activity-metric-history" className="activity-metric-history">
+        <Panel className="chart-panel activity-history-panel" category="activity">
+          <PanelHeader
+            eyebrow={`${selectedHistoryValues.length} days with data`}
+            title={selectedHistory.label}
+            icon={selectedHistory.icon}
+            action={selectedHistoryAverage === null ? null : <Badge variant="secondary">Average {selectedHistory.formatter(selectedHistoryAverage)}</Badge>}
+          />
+          {selectedHistoryValues.length > 1 ? (
+            historyMetric === 'steps'
+              ? <ColumnChart values={selectedHistory.values} labels={trendLabels(data)} xValues={trendXValues(data)} target={selectedHistory.target} height={226} ariaLabel={`${selectedHistory.label} during the synced period`} />
+              : <LineChart values={selectedHistory.values} labels={trendLabels(data)} xValues={trendXValues(data)} target={selectedHistory.target} color="var(--category-activity)" height={226} showRangeLabels variant="area" formatter={selectedHistory.formatter} ariaLabel={`${selectedHistory.label} during the synced period`} />
+          ) : <EmptyValue>Not enough historical data for this metric yet.</EmptyValue>}
+        </Panel>
+      </section>
+
       <SupportingMetrics items={supporting} />
 
       <div className="chart-grid activity-chart-grid">
@@ -603,26 +632,12 @@ export function ActivityView({ data }: ViewProps) {
           </Panel>
         )}
 
-        {validSteps.length > 1 && (
-          <Panel className="chart-panel" category="activity">
-            <PanelHeader
-              eyebrow={`${validSteps.length} days with data`}
-              title="Daily steps"
-              icon={TrendIcon}
-              action={averageSteps !== null ? <Badge variant="secondary">Average {formatNumber(averageSteps)}</Badge> : null}
-            />
-            <ColumnChart values={stepValues} labels={trendLabels(data)} xValues={trendXValues(data)} target={data.activity.stepsGoal} height={226} ariaLabel="Total steps per day" />
-          </Panel>
-        )}
       </div>
 
       {hasActivityTrends && (
         <section>
-          <SectionTitle title="Activity trends" copy="Daily series returned by Google Health." />
+          <SectionTitle title="More activity trends" copy="Additional daily series returned by Google Health." />
           <div className="metric-trend-grid">
-            <MetricTrendPanel data={data} category="activity" icon={CaloriesIcon} title="Calories burned" values={data.trends.map((point) => point.calories)} formatter={(value) => `${formatNumber(value)} kcal`} />
-            <MetricTrendPanel data={data} category="activity" icon={DistanceIcon} title="Distance" values={data.trends.map((point) => point.distanceKm)} formatter={(value) => `${formatDecimal(value)} km`} />
-            <MetricTrendPanel data={data} category="activity" icon={ActiveIcon} title="Active minutes" values={data.trends.map((point) => point.activeMinutes)} formatter={(value) => `${formatNumber(value)} min`} />
             <MetricTrendPanel data={data} category="activity" icon={GaugeIcon} title="Zone minutes" values={data.trends.map((point) => point.zoneMinutes)} formatter={(value) => `${formatNumber(value)} min`} />
             <MetricTrendPanel data={data} category="activity" icon={DurationIcon} title="Sedentary time" values={data.trends.map((point) => point.sedentaryMinutes)} formatter={(value) => formatMinutes(value)} />
             <MetricTrendPanel data={data} category="activity" icon={FloorsIcon} title="Floors" values={data.trends.map((point) => point.floors)} formatter={(value) => formatNumber(value)} />

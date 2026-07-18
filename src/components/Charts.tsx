@@ -134,7 +134,7 @@ export function LineChart({
 
   const margin = compact
     ? { top: 7, right: 2, bottom: showRangeLabels ? 22 : 7, left: 2 }
-    : { top: 18, right: 14, bottom: 30, left: 48 }
+    : { top: 18, right: 14, bottom: 30, left: 64 }
   const plotWidth = width - margin.left - margin.right
   const plotHeight = height - margin.top - margin.bottom
   const domain = lineDomain(valid, target)

@@ -3,7 +3,7 @@ import { Card, CardAction, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
 import type { AppIcon } from './icons'
-import { ChevronDownIcon, ChevronUpIcon, MinusIcon } from './icons'
+import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, MinusIcon } from './icons'
 import { BulletChart } from './Charts'
 
 interface PanelProps {
@@ -13,9 +13,10 @@ interface PanelProps {
   category?: 'activity' | 'heart' | 'sleep' | 'recovery' | 'body' | 'device'
   onClick?: () => void
   ariaLabel?: string
+  ariaPressed?: boolean
 }
 
-export function Panel({ children, className, tone = 'default', category, onClick, ariaLabel }: PanelProps) {
+export function Panel({ children, className, tone = 'default', category, onClick, ariaLabel, ariaPressed }: PanelProps) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!onClick || (event.key !== 'Enter' && event.key !== ' ')) return
     event.preventDefault()
@@ -31,6 +32,7 @@ export function Panel({ children, className, tone = 'default', category, onClick
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       aria-label={ariaLabel}
+      aria-pressed={onClick ? ariaPressed : undefined}
     >
       {children}
     </Card>
@@ -82,6 +84,7 @@ interface MetricProps {
   icon: AppIcon
   decimals?: number
   onClick?: () => void
+  selected?: boolean
 }
 
 export function MetricTile({
@@ -92,15 +95,17 @@ export function MetricTile({
   icon: Icon,
   decimals = 0,
   onClick,
+  selected = false,
 }: MetricProps) {
   if (value === null) return null
   const percent = goal && goal > 0 ? value / goal * 100 : null
   const formattedValue = formatNumber(value, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
   return (
-    <Panel className="metric-tile" category="activity" onClick={onClick} ariaLabel={`${label}: ${formattedValue}${unit}`}>
+    <Panel className={cn('metric-tile', selected && 'is-selected')} category="activity" onClick={onClick} ariaLabel={`${label}: ${formattedValue}${unit}${onClick ? '. Open history' : ''}`} ariaPressed={onClick ? selected : undefined}>
       <div className="metric-tile-head">
         <DuoIcon icon={Icon} />
         <span>{label}</span>
+        {onClick && <ChevronRightIcon className="metric-tile-action" aria-hidden="true" />}
       </div>
       <div className="metric-value">
         {formattedValue}

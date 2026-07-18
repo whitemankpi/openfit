@@ -2788,6 +2788,33 @@ input:focus-visible,
   gap: 10px;
 }
 
+.metric-tile-head .metric-tile-action {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.metric-tile.is-clickable:hover .metric-tile-action,
+.metric-tile.is-selected .metric-tile-action {
+  color: var(--category-activity);
+  transform: translateX(2px);
+}
+
+.metric-tile.is-selected {
+  border-color: color-mix(in srgb, var(--category-activity) 52%, var(--border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--category-activity) 20%, transparent);
+}
+
+.activity-metric-history {
+  scroll-margin-top: 104px;
+}
+
+.activity-history-panel {
+  min-height: 308px;
+}
+
 .home-trend-grid .mini-trend-heading {
   align-items: center;
   justify-content: flex-start;
