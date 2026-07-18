@@ -301,6 +301,8 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
         : null),
       stepsSource: stepsSource.provider === 'google-fit'
         ? 'google-fit'
+        : stepsSource.provider === 'google-fit+health'
+          ? 'google-fit+health'
         : stepsSource.provider === 'google-health'
           ? 'google-health'
           : payload.source === 'fitbit'

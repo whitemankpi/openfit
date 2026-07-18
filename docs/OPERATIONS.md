@@ -133,7 +133,7 @@ KsFit appears in Google Fit as:
 raw:com.google.step_count.delta:com.kingsmith.xiaojin:health_platform
 ```
 
-OpenFit reads Google's deduplicated `estimated_steps` aggregate. It does not add raw KsFit, Fitbit Mobile, Samsung Health, or other source totals. Google Fit steps take priority when available; Google Health steps are the fallback.
+OpenFit reads Google's deduplicated `estimated_steps` aggregate and reconciled Google Health steps. It does not add raw KsFit, Fitbit Mobile, Samsung Health, or other source totals. When both APIs return intraday data, OpenFit takes the stronger value per hour, fills gaps from the other source, and labels a genuinely mixed result as `Google Fit + Health`.
 
 Read-only hosted audit endpoint:
 

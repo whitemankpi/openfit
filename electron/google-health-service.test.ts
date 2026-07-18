@@ -160,7 +160,7 @@ describe('Google Health adapter', () => {
     expect(endpoints.activity.summary.veryActiveMinutes).toBeNull()
   })
 
-  it('prefers Google Fit steps over Google Health without adding the totals', () => {
+  it('uses the strongest hourly step estimate without double-counting overlapping sources', () => {
     const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
     const endpoints = __test.translateGoogleHealth({
       stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '1000' } })] },
@@ -189,7 +189,68 @@ describe('Google Health adapter', () => {
     expect(endpoints.stepsTrend['activities-steps']).toContainEqual({ dateTime: '2026-06-22', value: 6400 })
   })
 
-  it('falls back to Google Health for an empty Fit dataset but preserves a genuine Fit zero', () => {
+  it('keeps a complete Google Health day when Google Fit is sparse', () => {
+    const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
+    const healthPoints = [
+      [12, 249], [13, 324], [14, 43], [15, 1939], [16, 822], [17, 269],
+    ].map(([hours, count]) => ({
+      steps: { interval: { civilStartTime: { ...civil('2026-06-22'), time: { hours } } }, count },
+    }))
+    const endpoints = __test.translateGoogleHealth({
+      stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '3646' } })] },
+      stepsIntradayRaw: { dataPoints: healthPoints },
+      googleFitSteps: {
+        timeZone: 'Europe/Kyiv',
+        daily: { mode: 'estimated-steps', payload: { bucket: [{
+          startTimeMillis: String(midnight),
+          dataset: [{ point: [{ value: [{ intVal: 170 }] }] }],
+        }] } },
+        hourly: { mode: 'estimated-steps', payload: { bucket: [
+          { startTimeMillis: String(midnight + 12 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 37 }] }] }] },
+          { startTimeMillis: String(midnight + 13 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 133 }] }] }] },
+        ] } },
+      },
+    }, '2026-06-22', new Date(2026, 5, 23, 12))
+
+    expect(endpoints.activity.summary.steps).toBe(3646)
+    expect(endpoints.stepsSource).toEqual({ provider: 'google-health', mode: 'reconciled' })
+    expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toContainEqual({ time: '15:00', value: 1939 })
+  })
+
+  it('combines non-overlapping stronger hours from Google Fit and Google Health', () => {
+    const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
+    const endpoints = __test.translateGoogleHealth({
+      stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '3938' } })] },
+      stepsIntradayRaw: { dataPoints: [
+        { steps: { interval: { civilStartTime: { ...civil('2026-06-22'), time: { hours: 10 } } }, count: 523 } },
+        { steps: { interval: { civilStartTime: { ...civil('2026-06-22'), time: { hours: 11 } } }, count: 415 } },
+        { steps: { interval: { civilStartTime: { ...civil('2026-06-22'), time: { hours: 18 } } }, count: 2615 } },
+      ] },
+      googleFitSteps: {
+        timeZone: 'Europe/Kyiv',
+        daily: { mode: 'estimated-steps', payload: { bucket: [{
+          startTimeMillis: String(midnight),
+          dataset: [{ point: [{ value: [{ intVal: 6561 }] }] }],
+        }] } },
+        hourly: { mode: 'estimated-steps', payload: { bucket: [
+          { startTimeMillis: String(midnight + 10 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 4731 }] }] }] },
+          { startTimeMillis: String(midnight + 11 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 1149 }] }] }] },
+          { startTimeMillis: String(midnight + 12 * 60 * 60 * 1000), dataset: [{ point: [{ value: [{ intVal: 681 }] }] }] },
+        ] } },
+      },
+    }, '2026-06-22', new Date(2026, 5, 23, 12))
+
+    expect(endpoints.activity.summary.steps).toBe(9176)
+    expect(endpoints.stepsSource.provider).toBe('google-fit+health')
+    expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([
+      { time: '10:00', value: 4731 },
+      { time: '11:00', value: 1149 },
+      { time: '12:00', value: 681 },
+      { time: '18:00', value: 2615 },
+    ])
+  })
+
+  it('falls back to Google Health for an empty or smaller Fit dataset', () => {
     const midnight = __test.zonedMidnightMillis('2026-06-22', 'Europe/Kyiv')
     const fallback = __test.translateGoogleHealth({
       stepsDaily: { rollupDataPoints: [daily('2026-06-22', { steps: { countSum: '900' } })] },
@@ -213,8 +274,8 @@ describe('Google Health adapter', () => {
 
     expect(fallback.activity.summary.steps).toBe(900)
     expect(fallback.stepsSource.provider).toBe('google-health')
-    expect(zero.activity.summary.steps).toBe(0)
-    expect(zero.stepsSource.provider).toBe('google-fit')
+    expect(zero.activity.summary.steps).toBe(900)
+    expect(zero.stepsSource.provider).toBe('google-health')
   })
 
   it('resolves civil midnight across Kyiv daylight-saving changes', () => {

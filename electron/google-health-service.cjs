@@ -343,6 +343,35 @@ function fitHourlyPoints(raw, selectedDate) {
   }).filter(Boolean).sort((left, right) => left.time.localeCompare(right.time))
 }
 
+function hourlyStepMap(points) {
+  const result = new Map()
+  for (const point of points) {
+    const hour = String(point?.time || '').slice(0, 2)
+    const value = numeric(point?.value)
+    if (!/^\d{2}$/.test(hour) || value === null) continue
+    result.set(hour, (result.get(hour) || 0) + value)
+  }
+  return result
+}
+
+function mergeHourlySteps(googleHealthPoints, googleFitPoints) {
+  if (!googleHealthPoints.length) return { points: googleFitPoints, healthContributes: false, fitContributes: googleFitPoints.length > 0 }
+  if (!googleFitPoints.length) return { points: googleHealthPoints, healthContributes: true, fitContributes: false }
+
+  const health = hourlyStepMap(googleHealthPoints)
+  const fit = hourlyStepMap(googleFitPoints)
+  let healthContributes = false
+  let fitContributes = false
+  const points = [...new Set([...health.keys(), ...fit.keys()])].sort().map((hour) => {
+    const healthValue = health.get(hour)
+    const fitValue = fit.get(hour)
+    if (fitValue === undefined || (healthValue !== undefined && healthValue > fitValue)) healthContributes = true
+    else fitContributes = true
+    return { time: `${hour}:00`, value: Math.max(healthValue ?? 0, fitValue ?? 0) }
+  })
+  return { points, healthContributes, fitContributes }
+}
+
 function fitBucketSummary(payload, timeZone) {
   return (payload?.bucket || []).map((bucket) => {
     const start = numeric(bucket.startTimeMillis)
@@ -596,7 +625,10 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
   const googleHealthSteps = dailyMap(raw.stepsDaily, (point) => numeric(point.steps?.countSum))
   const googleFitSteps = fitDailyMap(raw.googleFitSteps)
   const steps = new Map(googleHealthSteps)
-  for (const [date, value] of googleFitSteps) steps.set(date, value)
+  for (const [date, value] of googleFitSteps) {
+    const healthValue = steps.get(date)
+    steps.set(date, healthValue === undefined || healthValue === null ? value : Math.max(healthValue, value))
+  }
   const calories = dailyMap(raw.caloriesDaily, (point) => numeric(point.totalCalories?.kcalSum))
   const distance = dailyMap(raw.distanceDaily, (point) => numeric(point.distance?.millimetersSum, (value) => value / 1_000_000))
   const floors = dailyMap(raw.floorsDaily, (point) => numeric(point.floors?.countSum))
@@ -694,7 +726,12 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
     return { time, value: Number(record.count || 0) }
   }).filter((point) => point?.time).sort((a, b) => a.time.localeCompare(b.time))
   const googleFitStepPoints = fitHourlyPoints(raw.googleFitSteps, selectedDate)
-  const stepPoints = googleFitStepPoints.length ? googleFitStepPoints : googleHealthStepPoints
+  const mergedSteps = mergeHourlySteps(googleHealthStepPoints, googleFitStepPoints)
+  const stepPoints = mergedSteps.points
+  if (stepPoints.length) {
+    const intradayTotal = stepPoints.reduce((sum, point) => sum + point.value, 0)
+    steps.set(selectedDate, Math.max(steps.get(selectedDate) ?? 0, intradayTotal))
+  }
   const heartPoints = dataPoints(raw.heartIntradayRaw).map((point) => {
     const record = point.heartRate || {}
     const date = dateFromCivil(record.sampleTime?.civilTime)
@@ -717,11 +754,19 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
     features: device.features,
   }))
   const todaySteps = selected(steps, selectedDate)
-  const stepsSource = googleFitSteps.has(selectedDate) || googleFitStepPoints.length
-    ? { provider: 'google-fit', mode: raw.googleFitSteps?.daily?.mode || raw.googleFitSteps?.hourly?.mode || null }
-    : todaySteps !== null || googleHealthStepPoints.length
-      ? { provider: 'google-health', mode: 'reconciled' }
-      : null
+  const healthDaily = googleHealthSteps.get(selectedDate)
+  const fitDaily = googleFitSteps.get(selectedDate)
+  const healthContributes = mergedSteps.healthContributes
+    || (healthDaily !== undefined && (fitDaily === undefined || healthDaily > fitDaily) && healthDaily === todaySteps)
+  const fitContributes = mergedSteps.fitContributes
+    || (fitDaily !== undefined && (healthDaily === undefined || fitDaily >= healthDaily) && fitDaily === todaySteps)
+  const stepsSource = healthContributes && fitContributes
+    ? { provider: 'google-fit+health', mode: `${raw.googleFitSteps?.daily?.mode || raw.googleFitSteps?.hourly?.mode || 'google-fit'}+reconciled` }
+    : fitContributes
+      ? { provider: 'google-fit', mode: raw.googleFitSteps?.daily?.mode || raw.googleFitSteps?.hourly?.mode || null }
+      : healthContributes || todaySteps !== null
+        ? { provider: 'google-health', mode: 'reconciled' }
+        : null
   const todayCalories = selected(calories, selectedDate)
   const todayDistance = selected(distance, selectedDate)
   const todayFloors = selected(floors, selectedDate)

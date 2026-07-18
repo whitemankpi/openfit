@@ -378,6 +378,8 @@ export function TodayView({ data, navigate }: ViewProps) {
     : `${formatMinutes(analysis.sleepGoalDifference)} · goal`
   const stepsSourceLabel = data.activity.stepsSource === 'google-fit'
     ? 'Google Fit'
+    : data.activity.stepsSource === 'google-fit+health'
+      ? 'Google Fit + Health'
     : data.activity.stepsSource === 'google-health'
       ? 'Google Health'
       : data.activity.stepsSource === 'fitbit'
@@ -932,6 +934,8 @@ function CoverageRow({ icon: Icon, label, items }: { icon: AppIcon; label: strin
 export function DevicesView({ data, status }: ViewProps) {
   const stepsSourceLabel = data.activity.stepsSource === 'google-fit'
     ? 'Google Fit'
+    : data.activity.stepsSource === 'google-fit+health'
+      ? 'Google Fit + Health'
     : data.activity.stepsSource === 'google-health'
       ? 'Google Health'
       : data.activity.stepsSource === 'fitbit'
