@@ -98,6 +98,25 @@ function sleepStages(record: Json | null): SleepStage[] {
   }))
 }
 
+function sleepStageMinutes(record: Json | null, key: SleepStageKey) {
+  return numeric(asObject(asObject(asObject(record?.levels).summary)[key]).minutes)
+}
+
+function sleepStagePercent(minutes: number | null, total: number | null) {
+  if (minutes === null || total === null || total <= 0) return null
+  return Math.round(minutes / total * 1000) / 10
+}
+
+function sleepMidTime(startTime: unknown, endTime: unknown) {
+  const start = Date.parse(String(startTime ?? ''))
+  const end = Date.parse(String(endTime ?? ''))
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  const middle = new Date(start + (end - start) / 2)
+  const minutes = middle.getHours() * 60 + middle.getMinutes()
+  // Fold onto (-720, 720] so late and early midpoints stay adjacent.
+  return minutes > 720 ? minutes - 1440 : minutes
+}
+
 function sleepStageKey(value: unknown): SleepStageKey | null {
   const stage = String(value ?? '').toLowerCase()
   if (stage === 'awake' || stage === 'restless') return 'wake'
@@ -212,6 +231,7 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
     ? asObject(spo2Root.value)
     : asObject(asArray(spo2Root.spo2).at(-1)?.value)
   const stageTimeline = sleepStageTimeline(sleepRecord)
+  const sleepTotalMinutes = numeric(sleepRecord?.minutesAsleep)
   const stepsTrend = readTrend(e.stepsTrend, 'activities-steps')
   const caloriesTrend = readTrend(e.caloriesTrend, 'activities-calories')
   const heartTrendRaw = asArray(asObject(e.heartTrend)['activities-heart'])
@@ -222,7 +242,19 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
   const sleepTrendRecords = asArray(asObject(e.sleepTrend).sleep)
   const sleepTrend = new Map(sleepTrendRecords.filter((item) => item.isMainSleep !== false).map((item) => [
     String(item.dateOfSleep),
-    { minutes: numeric(item.minutesAsleep), score: numeric(item.sleepScore), efficiency: numeric(item.efficiency) },
+    {
+      minutes: numeric(item.minutesAsleep),
+      score: numeric(item.sleepScore),
+      efficiency: numeric(item.efficiency),
+      deep: sleepStageMinutes(item, 'deep'),
+      rem: sleepStageMinutes(item, 'rem'),
+      light: sleepStageMinutes(item, 'light'),
+      // minutesInSleepPeriod equals asleep + awake, so minutesAwake is already
+      // wake-after-sleep-onset: latency and after-wake sit outside the period.
+      awake: numeric(item.minutesAwake),
+      latency: numeric(item.minutesToFallAsleep),
+      midTime: sleepMidTime(item.startTime, item.endTime),
+    },
   ]))
   const metricTrend = new Map(asArray(asObject(e.metricTrends).values).map((item) => [String(item.dateTime), item]))
   const weightTrendRecords = asArray(asObject(e.bodyWeight).weight)
@@ -256,6 +288,12 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
       sleepMinutes: sleepTrend.get(date)?.minutes ?? null,
       sleepScore: sleepTrend.get(date)?.score ?? null,
       sleepEfficiency: sleepTrend.get(date)?.efficiency ?? numeric(metric.sleepEfficiency),
+      sleepDeepMinutes: sleepTrend.get(date)?.deep ?? null,
+      sleepRemMinutes: sleepTrend.get(date)?.rem ?? null,
+      sleepLightMinutes: sleepTrend.get(date)?.light ?? null,
+      sleepAwakeMinutes: sleepTrend.get(date)?.awake ?? null,
+      sleepLatencyMinutes: sleepTrend.get(date)?.latency ?? null,
+      sleepMidTime: sleepTrend.get(date)?.midTime ?? null,
       weight: weightTrend.get(date) ?? null,
       bodyFat: numeric(metric.bodyFat),
       waterMl: numeric(metric.waterMl),
@@ -360,7 +398,7 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
       irregularRhythmAlerts: irregularAvailable ? irregularAlerts : null,
     },
     sleep: {
-      totalMinutes: numeric(sleepRecord?.minutesAsleep),
+      totalMinutes: sleepTotalMinutes,
       goalMinutes: numeric(sleepGoal.minDuration),
       score: numeric(sleepRecord?.sleepScore),
       efficiency: numeric(sleepRecord?.efficiency),
@@ -373,6 +411,11 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
       minutesAfterWakeUp: numeric(sleepRecord?.minutesAfterWakeUp),
       timeInBed: numeric(sleepRecord?.timeInBed),
       minutesAwake: numeric(sleepRecord?.minutesAwake),
+      minutesInSleepPeriod: numeric(sleepRecord?.minutesInSleepPeriod),
+      deepPercent: sleepStagePercent(sleepStageMinutes(sleepRecord, 'deep'), sleepTotalMinutes),
+      remPercent: sleepStagePercent(sleepStageMinutes(sleepRecord, 'rem'), sleepTotalMinutes),
+      lightPercent: sleepStagePercent(sleepStageMinutes(sleepRecord, 'light'), sleepTotalMinutes),
+      midSleepTime: sleepMidTime(sleepRecord?.startTime, sleepRecord?.endTime),
     },
     body: {
       weightKg: numeric(latestWeight?.weight),

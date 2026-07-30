@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import type { ActivityItem, DashboardData, FitbitAuthStatus, PageId, TimePoint } from '@/types'
-import { BulletChart, ColumnChart, LineChart, RadialProgress, SleepStageBar, SleepStageTimeline } from './Charts'
+import { BulletChart, ColumnChart, LineChart, RadialProgress, SleepStageBar, SleepStageTimeline, StackedColumnChart } from './Charts'
 import { DuoIcon, EmptyValue, MetricTile, Panel, PanelHeader } from './Shared'
 import type { AppIcon } from './icons'
 import {
@@ -219,13 +219,6 @@ function hourlyBuckets(points: TimePoint[]) {
     labels: buckets.map((bucket) => `${String(bucket.hour).padStart(2, '0')}:00`),
     xValues: buckets.map((bucket) => bucket.hour),
   }
-}
-
-function sleepScoreCategory(value: number) {
-  if (value >= 90) return 'Excellent'
-  if (value >= 80) return 'Good'
-  if (value >= 60) return 'Fair'
-  return 'Poor'
 }
 
 type HomeCategory = 'activity' | 'heart' | 'sleep' | 'recovery' | 'body'
@@ -478,7 +471,7 @@ export function TodayView({ data, navigate }: ViewProps) {
                     <PanelHeader title="Sleep" icon={SleepIcon} action={<ChevronRightIcon aria-hidden="true" />} />
                     <div className="sleep-overview-lead">
                       <div className="sleep-overview-duration"><strong>{sleepPrimaryValue}</strong>{(data.sleep.startTime || data.sleep.endTime) && <span>{formatTime(data.sleep.startTime)} – {formatTime(data.sleep.endTime)}</span>}<small>{sleepGoalNote}</small></div>
-                      {(hasValue(data.sleep.score) || hasValue(data.sleep.efficiency)) && <RadialProgress value={data.sleep.score ?? data.sleep.efficiency} color="var(--category-sleep)" label={hasValue(data.sleep.score) ? sleepScoreCategory(data.sleep.score) : 'efficiency'} valueLabel={formatNumber(data.sleep.score ?? data.sleep.efficiency)} size={68} />}
+                      {hasValue(data.sleep.efficiency) && <RadialProgress value={data.sleep.efficiency} color="var(--category-sleep)" label="efficiency" valueLabel={formatNumber(data.sleep.efficiency)} size={68} />}
                     </div>
                     {data.sleep.stages.some((stage) => stage.minutes > 0) && <SleepStageBar stages={data.sleep.stages} compact showLegend={false} />}
                   </Panel>
@@ -769,9 +762,15 @@ export function SleepView({ data }: ViewProps) {
   const sleepCount = sleepValues.filter(hasValue).length
   const efficiencyValues = data.trends.map((point) => point.sleepEfficiency)
   const efficiencyCount = efficiencyValues.filter(hasValue).length
+  const stageNights = data.trends.map((point) => {
+    const { sleepDeepMinutes: deep, sleepLightMinutes: light, sleepRemMinutes: rem, sleepAwakeMinutes: wake } = point
+    if (!hasValue(deep) || !hasValue(light) || !hasValue(rem) || !hasValue(wake)) return null
+    return { deep, light, rem, wake }
+  })
+  const stageNightsCount = stageNights.filter((night) => night !== null).length
   const stageTimeline = data.sleep.stageTimeline ?? []
   const stageTransitions = data.sleep.stageTransitions
-  const hasSummary = hasValue(data.sleep.totalMinutes) || hasValue(data.sleep.score)
+  const hasSummary = hasValue(data.sleep.totalMinutes) || hasValue(data.sleep.efficiency)
   return (
     <div className="page-stack sleep-page">
       {hasSummary && (
@@ -793,11 +792,11 @@ export function SleepView({ data }: ViewProps) {
                     valueLabel={`${formatNumber(data.sleep.efficiency)}%`}
                     size={116}
                   />
+                  <small className="sleep-efficiency-caption">asleep / time in bed</small>
                 </div>
               )}
             </div>
             <div className="sleep-bullets">
-              {hasValue(data.sleep.score) && <BulletChart value={data.sleep.score} max={100} label="Sleep score" valueLabel={`${formatNumber(data.sleep.score)} / 100 · ${sleepScoreCategory(data.sleep.score)}`} color="var(--category-sleep)" />}
               {hasValue(data.sleep.totalMinutes) && hasValue(data.sleep.goalMinutes) && (
                 <BulletChart
                   value={data.sleep.totalMinutes}
@@ -839,7 +838,7 @@ export function SleepView({ data }: ViewProps) {
         </Panel>
       )}
 
-      {(sleepCount > 1 || efficiencyCount > 1) && (
+      {(sleepCount > 1 || efficiencyCount > 1 || stageNightsCount > 1) && (
         <section>
           <SectionTitle title="Sleep trends" copy="Duration and efficiency of recorded nights." />
           <div className="chart-grid sleep-history-grid">
@@ -850,6 +849,12 @@ export function SleepView({ data }: ViewProps) {
               </Panel>
             )}
             <MetricTrendPanel data={data} category="sleep" icon={GaugeIcon} title="Efficiency" values={efficiencyValues} formatter={(value) => `${formatNumber(value)}%`} target={90} />
+            {stageNightsCount > 1 && (
+              <Panel className="chart-panel sleep-trend-panel" category="sleep">
+                <PanelHeader eyebrow={`${stageNightsCount} nights with data`} title="Stage composition" icon={SignalIcon} />
+                <StackedColumnChart points={stageNights} labels={trendLabels(data)} xValues={trendXValues(data)} height={196} formatter={(value) => compactMinutes(value)} ariaLabel="Sleep stage minutes per night" />
+              </Panel>
+            )}
           </div>
         </section>
       )}

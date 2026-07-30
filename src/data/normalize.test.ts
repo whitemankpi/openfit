@@ -85,6 +85,7 @@ describe('normalizeFitbitData', () => {
           steps: 2760,
           averagePaceSecondsPerMeter: 1.523,
           heartZoneMinutes: { light: 51, moderate: 7, vigorous: 2, peak: 0 },
+          sources: ['WalkingPad', 'Fitbit'],
         }, {
           logId: 'legacy-run',
           activityName: 'Run',
@@ -109,6 +110,7 @@ describe('normalizeFitbitData', () => {
       moderateActiveMinutes: 12,
       vigorousActiveMinutes: 22,
     })
+    expect(result.activities[0].sources).toEqual(['WalkingPad', 'Fitbit'])
     expect(result.health).toMatchObject({
       hrvMs: 47,
       hrvDeepSleepRmssdMs: 52.4,
@@ -128,7 +130,14 @@ describe('normalizeFitbitData', () => {
       timeInBed: 455,
       minutesAwake: 35,
       stageTransitions: { deep: 1, light: 1, rem: null, wake: 1 },
+      deepPercent: 21.4,
+      lightPercent: 50,
     })
+    // The fixture reports no REM bucket and no sleep period, which must stay
+    // unavailable rather than collapsing to zero.
+    expect(result.sleep.remPercent).toBeNull()
+    expect(result.sleep.minutesInSleepPeriod).toBeNull()
+    expect(result.sleep.midSleepTime).toBeNull()
     expect(result.sleep.stageTimeline).toEqual([
       { startTime: '2026-06-21T21:00:00Z', endTime: '2026-06-21T22:00:00.000Z', type: 'light' },
       { startTime: '2026-06-21T22:00:00Z', endTime: '2026-06-21T23:00:00.000Z', type: 'deep' },
@@ -215,6 +224,62 @@ describe('normalizeFitbitData', () => {
     expect(result.sleep.efficiency).toBe(93)
     expect(result.sleep.score).toBeNull()
     expect(result.trends[0]?.sleepScore).toBeNull()
+  })
+
+  it('carries the nightly sleep composition into the trend series', () => {
+    const night = (date: string, startTime: string, endTime: string) => ({
+      dateOfSleep: date,
+      isMainSleep: true,
+      minutesAsleep: 420,
+      minutesAwake: 32,
+      minutesToFallAsleep: 11,
+      minutesInSleepPeriod: 452,
+      startTime,
+      endTime,
+      levels: { summary: { deep: { minutes: 84 }, light: { minutes: 216 }, rem: { minutes: 120 } } },
+    })
+    const payload: RawFitbitPayload = {
+      source: 'google-health',
+      date: '2026-06-22',
+      generatedAt: '2026-06-22T12:00:00.000Z',
+      endpoints: {
+        sleep: { sleep: [night('2026-06-22', '2026-06-21T21:00:00Z', '2026-06-22T05:00:00Z')] },
+        sleepTrend: {
+          sleep: [
+            night('2026-06-21', '2026-06-20T21:00:00Z', '2026-06-21T05:00:00Z'),
+            night('2026-06-22', '2026-06-21T21:00:00Z', '2026-06-22T05:00:00Z'),
+          ],
+        },
+      },
+      errors: [],
+      rateLimit: { limit: null, remaining: null, resetSeconds: null },
+    }
+
+    const result = normalizeFitbitData(payload)
+
+    expect(result.sleep).toMatchObject({
+      minutesInSleepPeriod: 452,
+      deepPercent: 20,
+      lightPercent: 51.4,
+      remPercent: 28.6,
+    })
+    expect(result.trends[1]).toMatchObject({
+      sleepDeepMinutes: 84,
+      sleepLightMinutes: 216,
+      sleepRemMinutes: 120,
+      sleepAwakeMinutes: 32,
+      sleepLatencyMinutes: 11,
+    })
+
+    // The midpoint is expressed relative to local midnight and folded onto
+    // (-720, 720], so consecutive nights stay directly comparable regardless of
+    // the machine timezone.
+    const midpoint = new Date('2026-06-22T01:00:00Z')
+    const localMinutes = midpoint.getHours() * 60 + midpoint.getMinutes()
+    const expected = localMinutes > 720 ? localMinutes - 1440 : localMinutes
+    expect(result.sleep.midSleepTime).toBe(expected)
+    expect(result.trends[0]?.sleepMidTime).toBe(expected)
+    expect(result.trends[1]?.sleepMidTime).toBe(expected)
   })
 
   it('preserves multi-day health metric context for personal baselines', () => {

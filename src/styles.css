@@ -1019,6 +1019,9 @@ input:focus-visible,
 .column-chart { position: relative; width: 100%; overflow: hidden; }
 .line-chart svg,
 .column-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.stacked-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.stacked-chart-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-fog); font-size: 13px; }
+.stacked-chart-legend .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
 .chart-gridline { stroke: var(--color-graphite); stroke-width: 1; stroke-dasharray: 2 6; }
 .chart-tick,
 .chart-label,
@@ -1160,6 +1163,7 @@ input:focus-visible,
 .sleep-efficiency-ring .radial-track { stroke: color-mix(in srgb, var(--category-sleep) 13%, var(--muted)); }
 .sleep-efficiency-ring .radial-progress strong { font-size: 25px; font-weight: 560; letter-spacing: -0.03em; }
 .sleep-efficiency-ring .radial-progress small { max-width: none; margin-top: 5px; color: var(--color-fog); font-size: 12px; }
+.sleep-efficiency-caption { margin-top: 6px; color: var(--color-slate); font-size: 11px; text-align: center; }
 .sleep-bullets { display: flex; margin-top: auto; flex-direction: column; gap: 12px; }
 .sleep-stage-wrap { gap: 17px; }
 .sleep-stage-bar { height: 11px; gap: 3px; }

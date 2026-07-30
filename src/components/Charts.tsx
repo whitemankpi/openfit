@@ -390,6 +390,174 @@ export function ColumnChart({
   )
 }
 
+export interface SleepStageNight {
+  deep: number
+  light: number
+  rem: number
+  wake: number
+}
+
+const stackedStageOrder = ['deep', 'light', 'rem', 'wake'] as const
+const stackedStageConfig: Record<(typeof stackedStageOrder)[number], { label: string; color: string }> = {
+  deep: { label: 'Deep', color: 'var(--sleep-deep)' },
+  light: { label: 'Light', color: 'var(--sleep-light)' },
+  rem: { label: 'REM', color: 'var(--sleep-rem)' },
+  wake: { label: 'Awake', color: 'var(--sleep-wake)' },
+}
+
+export function StackedColumnChart({
+  points,
+  labels = [],
+  xValues,
+  height = 220,
+  compact = false,
+  formatter = (value) => formatNumber(value),
+  ariaLabel = 'Sleep stages by night',
+  showRangeLabels = false,
+}: {
+  points: Array<SleepStageNight | null>
+  labels?: string[]
+  xValues?: number[]
+  height?: number
+  compact?: boolean
+  formatter?: (value: number) => string
+  ariaLabel?: string
+  showRangeLabels?: boolean
+}) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const valid = points.filter((point): point is SleepStageNight => point !== null)
+  const { containerRef, width } = useResponsiveChartWidth(valid.length > 0)
+  if (!valid.length) return <div className="chart-empty" style={{ height }}>No data for this range</div>
+
+  const margin = compact
+    ? { top: 8, right: 2, bottom: showRangeLabels ? 22 : 8, left: 2 }
+    : { top: 20, right: 14, bottom: 30, left: 48 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const validTotals = valid.map((point) => stackedStageOrder.reduce((sum, key) => sum + point[key], 0))
+  const pointTotals = points.map((point) => point === null ? null : stackedStageOrder.reduce((sum, key) => sum + point[key], 0))
+  const rawMax = Math.max(...validTotals, 1)
+  const step = niceStep(rawMax, 4)
+  const max = Math.ceil(rawMax / step) * step
+  const validX = xValues?.length === points.length && xValues.every(Number.isFinite) ? xValues : points.map((_, index) => index)
+  const sortedX = [...validX].sort((a, b) => a - b)
+  const positiveSteps = sortedX.slice(1).map((value, index) => value - sortedX[index]).filter((value) => value > 0)
+  const typicalStep = positiveSteps.length ? Math.min(...positiveSteps) : 1
+  const xMin = Math.min(...validX) - typicalStep / 2
+  const xMax = Math.max(...validX) + typicalStep / 2
+  const slotWidth = plotWidth * typicalStep / Math.max(typicalStep, xMax - xMin)
+  const barWidth = Math.max(3, Math.min(compact ? 14 : 26, slotWidth * 0.62))
+  const yFor = (value: number) => margin.top + (1 - value / max) * plotHeight
+  const xCenter = (index: number) => margin.left + ((validX[index] - xMin) / Math.max(typicalStep, xMax - xMin)) * plotWidth
+  const ticks = [0, max / 2, max]
+  const labelEvery = Math.max(1, Math.ceil(labels.length / 7))
+  const activeTotal = activeIndex === null ? null : pointTotals[activeIndex]
+  const activePoint = activeIndex === null ? null : points[activeIndex]
+  const tableValues = pointTotals
+
+  return (
+    <div ref={containerRef} className={`column-chart stacked-column-chart ${compact ? 'is-compact' : ''}`} style={{ height }}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel} onPointerLeave={() => setActiveIndex(null)}>
+        <title>{ariaLabel}</title>
+        <desc>{`Nightly sleep stage minutes across ${valid.length} recorded nights.`}</desc>
+        {compact && (
+          <line
+            x1={margin.left}
+            y1={margin.top + plotHeight}
+            x2={width - margin.right}
+            y2={margin.top + plotHeight}
+            className="chart-baseline"
+          />
+        )}
+        {!compact && ticks.map((tick, index) => {
+          const y = yFor(tick)
+          return (
+            <g key={`${tick}-${index}`}>
+              <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} className="chart-gridline" />
+              <text x={margin.left - 9} y={y + 3} textAnchor="end" className="chart-tick">{formatter(tick)}</text>
+            </g>
+          )
+        })}
+        {points.map((point, index) => {
+          if (point === null) {
+            return (
+              <rect
+                key={`${labels[index] ?? index}-${index}`}
+                x={xCenter(index) - barWidth / 2}
+                y={margin.top}
+                width={barWidth}
+                height={plotHeight}
+                rx={Math.min(4, barWidth / 3)}
+                fill="var(--color-graphite)"
+                opacity={0.3}
+                className="chart-column-mark"
+                aria-label={`${labels[index] ?? `Period ${index + 1}`}: no data`}
+              >
+                <title>{`${labels[index] ?? `Period ${index + 1}`}: no data`}</title>
+              </rect>
+            )
+          }
+          let cursor = margin.top + plotHeight
+          const barLabel = `${labels[index] ?? `Period ${index + 1}`}: ${stackedStageOrder.map((key) => `${stackedStageConfig[key].label} ${formatter(point[key])}`).join(', ')}`
+          return (
+            <g
+              key={`${labels[index] ?? index}-${index}`}
+              tabIndex={0}
+              aria-label={barLabel}
+              className="chart-column-mark"
+              opacity={activeIndex === null || activeIndex === index ? 0.92 : 0.34}
+              onPointerEnter={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onBlur={() => setActiveIndex(null)}
+            >
+              <title>{barLabel}</title>
+              {stackedStageOrder.map((key) => {
+                const segmentHeight = (point[key] / max) * plotHeight
+                const y = cursor - segmentHeight
+                cursor = y
+                return (
+                  <rect
+                    key={key}
+                    x={xCenter(index) - barWidth / 2}
+                    y={y}
+                    width={barWidth}
+                    height={segmentHeight}
+                    fill={stackedStageConfig[key].color}
+                  />
+                )
+              })}
+            </g>
+          )
+        })}
+        {!compact && labels.map((label, index) => {
+          const lastIndex = labels.length - 1
+          if (index !== lastIndex && (index % labelEvery !== 0 || lastIndex - index < labelEvery)) return null
+          return <text key={`${label}-${index}`} x={xCenter(index)} y={height - 7} textAnchor="middle" className="chart-label">{label}</text>
+        })}
+      </svg>
+      {activeIndex !== null && activePoint !== null && (
+        <div
+          className="chart-tooltip"
+          style={{ left: `clamp(52px, ${xCenter(activeIndex) / width * 100}%, calc(100% - 52px))`, top: `${yFor(activeTotal ?? 0) / height * 100}%` }}
+          role="status"
+        >
+          <span>{labels[activeIndex] ?? `Period ${activeIndex + 1}`}</span>
+          {stackedStageOrder.map((key) => (
+            <strong key={key}>{stackedStageConfig[key].label}: {formatter(activePoint[key])}</strong>
+          ))}
+        </div>
+      )}
+      {compact && showRangeLabels && <CompactRangeLabels labels={labels} />}
+      <div className="stacked-chart-legend" aria-hidden="true">
+        {stackedStageOrder.map((key) => (
+          <span key={key}><i className="legend-dot" style={{ background: stackedStageConfig[key].color }} />{stackedStageConfig[key].label}</span>
+        ))}
+      </div>
+      <AccessibleChartTable title={ariaLabel} labels={labels} values={tableValues} formatter={formatter} />
+    </div>
+  )
+}
+
 export function RadialProgress({
   value,
   max = 100,

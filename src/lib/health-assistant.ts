@@ -111,6 +111,13 @@ function compactDay(data: DashboardData) {
       minutesAfterWakeUp: data.sleep.minutesAfterWakeUp,
       timeInBedMinutes: data.sleep.timeInBed,
       minutesAwake: data.sleep.minutesAwake,
+      minutesInSleepPeriod: data.sleep.minutesInSleepPeriod,
+      stagePercent: {
+        deep: data.sleep.deepPercent,
+        light: data.sleep.lightPercent,
+        rem: data.sleep.remPercent,
+      },
+      midSleepMinutesFromMidnight: data.sleep.midSleepTime,
     },
     body: {
       weightKg: data.body.weightKg,

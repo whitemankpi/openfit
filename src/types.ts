@@ -29,6 +29,12 @@ export interface TrendPoint {
   sleepMinutes: number | null
   sleepScore: number | null
   sleepEfficiency: number | null
+  sleepDeepMinutes: number | null
+  sleepRemMinutes: number | null
+  sleepLightMinutes: number | null
+  sleepAwakeMinutes: number | null
+  sleepLatencyMinutes: number | null
+  sleepMidTime: number | null
   weight: number | null
   bodyFat: number | null
   waterMl: number | null
@@ -159,6 +165,16 @@ export interface DashboardData {
     minutesAfterWakeUp: number | null
     timeInBed: number | null
     minutesAwake: number | null
+    minutesInSleepPeriod: number | null
+    deepPercent: number | null
+    remPercent: number | null
+    lightPercent: number | null
+    /**
+     * Midpoint of the night in minutes relative to local midnight, normalised to
+     * (-720, 720] so that 23:00 reads as -60 rather than 1380. Comparable across
+     * nights, which is what bedtime consistency needs.
+     */
+    midSleepTime: number | null
   }
   body: {
     weightKg: number | null

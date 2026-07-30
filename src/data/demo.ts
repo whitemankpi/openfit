@@ -16,6 +16,16 @@ function seeded(index: number, salt: number) {
   return Math.sin(index * 12.9898 + salt * 78.233) * 0.5 + 0.5
 }
 
+// Midpoint of the night in minutes relative to local midnight, folded onto (-720, 720].
+function midSleepMinutes(startIso: string, endIso: string): number {
+  const start = new Date(startIso).getTime()
+  const end = new Date(endIso).getTime()
+  const mid = new Date(start + (end - start) / 2)
+  const minutesFromMidnight = mid.getHours() * 60 + mid.getMinutes() + mid.getSeconds() / 60
+  const folded = minutesFromMidnight > 720 ? minutesFromMidnight - 1440 : minutesFromMidnight
+  return Math.round(folded)
+}
+
 function makeTrends(selectedDate: string): TrendPoint[] {
   const end = dateFromIso(selectedDate)
   const formatter = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
@@ -25,6 +35,9 @@ function makeTrends(selectedDate: string): TrendPoint[] {
     const steps = Math.round(7_200 + activityWave + seeded(index, 2) * 3_100)
     const sleepMinutes = Math.round(390 + seeded(index, 4) * 85)
     const activeMinutes = Math.round(38 + seeded(index, 5) * 48)
+    const sleepDeepMinutes = Math.round(sleepMinutes * (0.19 + seeded(index, 21) * 0.04))
+    const sleepRemMinutes = Math.round(sleepMinutes * (0.21 + seeded(index, 22) * 0.05))
+    const sleepLightMinutes = Math.max(0, sleepMinutes - sleepDeepMinutes - sleepRemMinutes)
     return {
       date: localIso(date),
       label: formatter.format(date).replace('.', ''),
@@ -45,6 +58,12 @@ function makeTrends(selectedDate: string): TrendPoint[] {
       sleepMinutes,
       sleepScore: null,
       sleepEfficiency: Math.round(86 + seeded(index, 17) * 9),
+      sleepDeepMinutes,
+      sleepRemMinutes,
+      sleepLightMinutes,
+      sleepAwakeMinutes: Math.round(20 + seeded(index, 23) * 30),
+      sleepLatencyMinutes: Math.round(5 + seeded(index, 24) * 15),
+      sleepMidTime: Math.round(170 + seeded(index, 25) * 60),
       weight: Number((72.8 - index * 0.045 + seeded(index, 3) * 0.28).toFixed(1)),
       bodyFat: Number((16.9 - index * 0.012 + seeded(index, 18) * 0.4).toFixed(1)),
       waterMl: Math.round(1_650 + seeded(index, 19) * 850),
@@ -155,6 +174,14 @@ export function createDemoData(selectedDate = localIso()): DashboardData {
   const latestSleepMinutes = latest.sleepMinutes ?? 0
   const stepsIntraday = makeStepsSeries()
   const heartRateIntraday = makeHeartSeries()
+  const sleepStartTime = `${localIso(new Date(dateFromIso(selectedDate).getTime() - dayMs))}T23:42:00`
+  const sleepEndTime = `${selectedDate}T06:55:00`
+  const stageMinutes = (key: SleepStage['key']) => stages.find((stage) => stage.key === key)?.minutes ?? 0
+  const sleepAsleepMinutes = stages.reduce((sum, stage) => sum + (stage.key === 'wake' ? 0 : stage.minutes), 0)
+  const sleepWakeMinutes = stageMinutes('wake')
+  // Percentages are shown next to the stage bar, so they use the same asleep
+  // total the bar renders rather than the independently seeded trend value.
+  const stagePercent = (key: SleepStage['key']) => Number((stageMinutes(key) / sleepAsleepMinutes * 100).toFixed(1))
 
   return {
     source: 'demo',
@@ -229,8 +256,8 @@ export function createDemoData(selectedDate = localIso()): DashboardData {
       goalMinutes: 480,
       score: latest.sleepScore,
       efficiency: latest.sleepEfficiency,
-      startTime: `${localIso(new Date(dateFromIso(selectedDate).getTime() - dayMs))}T23:42:00`,
-      endTime: `${selectedDate}T06:55:00`,
+      startTime: sleepStartTime,
+      endTime: sleepEndTime,
       stages,
       stageTimeline: makeSleepTimeline(selectedDate),
       stageTransitions: { deep: 3, light: 6, rem: 4, wake: 4 },
@@ -238,6 +265,11 @@ export function createDemoData(selectedDate = localIso()): DashboardData {
       minutesAfterWakeUp: 0,
       timeInBed: 433,
       minutesAwake: 38,
+      minutesInSleepPeriod: sleepAsleepMinutes + sleepWakeMinutes,
+      deepPercent: stagePercent('deep'),
+      remPercent: stagePercent('rem'),
+      lightPercent: stagePercent('light'),
+      midSleepTime: midSleepMinutes(sleepStartTime, sleepEndTime),
     },
     body: {
       weightKg: latest.weight,

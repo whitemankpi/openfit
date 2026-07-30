@@ -624,6 +624,24 @@ function matchingActivitySources(activityPoint, rawPoints) {
   })
 }
 
+function intervalMinutes(interval) {
+  const start = Date.parse(interval?.startTime || '')
+  const end = Date.parse(interval?.endTime || '')
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  return Math.round((end - start) / 60_000)
+}
+
+// Time in bed drives sleep efficiency, so it has to include the time spent
+// awake. Google's minutesInSleepPeriod largely excludes it and would pin
+// efficiency to 97-100% for every night.
+function sleepTimeInBed({ interval, asleep, awake }) {
+  const measured = intervalMinutes(interval)
+  if (measured !== null && measured >= asleep) return measured
+  const extra = awake.filter((value) => value !== null)
+  if (!extra.length) return measured
+  return asleep + extra.reduce((sum, value) => sum + value, 0)
+}
+
 function sleepStageKey(value) {
   const type = String(value || '').toLowerCase()
   if (type === 'awake' || type === 'restless') return 'wake'
@@ -674,6 +692,14 @@ function toLegacySleep(point) {
   }).filter(Boolean)
   const asleep = numeric(summary.minutesAsleep) ?? 0
   const period = numeric(summary.minutesInSleepPeriod)
+  const minutesAwake = numeric(summary.minutesAwake)
+  const minutesToFallAsleep = numeric(summary.minutesToFallAsleep)
+  const minutesAfterWakeUp = numeric(summary.minutesAfterWakeUp)
+  const timeInBed = sleepTimeInBed({
+    interval: sleep.interval,
+    asleep,
+    awake: [minutesAwake, minutesToFallAsleep, minutesAfterWakeUp],
+  })
   const endCivil = sleep.interval?.civilEndTime
   const dateOfSleep = dateFromCivil(endCivil) || sleep.interval?.endTime?.slice(0, 10)
   return {
@@ -681,11 +707,12 @@ function toLegacySleep(point) {
     dateOfSleep,
     isMainSleep: sleep.metadata?.nap !== true,
     minutesAsleep: asleep,
-    minutesAwake: numeric(summary.minutesAwake),
-    minutesToFallAsleep: numeric(summary.minutesToFallAsleep),
-    minutesAfterWakeUp: numeric(summary.minutesAfterWakeUp),
-    timeInBed: period,
-    efficiency: period && period > 0 ? Math.round(asleep / period * 100) : null,
+    minutesAwake,
+    minutesToFallAsleep,
+    minutesAfterWakeUp,
+    timeInBed,
+    minutesInSleepPeriod: period,
+    efficiency: timeInBed && timeInBed > 0 ? Math.round(asleep / timeInBed * 100) : null,
     startTime: sleep.interval?.startTime || null,
     endTime: sleep.interval?.endTime || null,
     levels: { summary: stageMap, data: stageTimeline },

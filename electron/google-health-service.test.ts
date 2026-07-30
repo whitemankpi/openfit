@@ -119,7 +119,7 @@ describe('Google Health adapter', () => {
       { dateTime: '2026-06-21T21:00:00Z', endTime: '2026-06-21T22:00:00Z', level: 'light', seconds: 3600 },
       { dateTime: '2026-06-21T22:00:00Z', endTime: '2026-06-21T23:00:00Z', level: 'deep', seconds: 3600 },
     ])
-    expect(endpoints.sleep.sleep[0]).toMatchObject({ minutesToFallAsleep: 4, minutesAfterWakeUp: 7, timeInBed: 455, minutesAwake: 35 })
+    expect(endpoints.sleep.sleep[0]).toMatchObject({ minutesToFallAsleep: 4, minutesAfterWakeUp: 7, timeInBed: 480, minutesAwake: 35 })
     expect(endpoints.hrv.hrv[0].value).toEqual({ dailyRmssd: 47, deepRmssd: 52.4, entropy: 4.8, nonRemHeartRate: 57 })
     expect(endpoints.spo2.value).toEqual({ avg: 97.1, min: 95.8, max: 98.5 })
     expect(endpoints.skinTemperature.tempSkin[0].value).toEqual({
@@ -392,5 +392,81 @@ describe('Google Health adapter', () => {
       application: { packageName: 'com.wahoofitness.fitness' },
       device: { manufacturer: 'Magene' },
     })).toBe('Wahoo Fitness · Magene')
+  })
+
+  describe('sleep efficiency', () => {
+    const night = (summary: Record<string, unknown>, interval?: Record<string, unknown>) => __test.translateGoogleHealth({
+      sleepRaw: { dataPoints: [{ dataPointName: 'sleep-1', sleep: {
+        interval: { civilEndTime: civil('2026-06-22'), ...interval },
+        metadata: { nap: false },
+        summary,
+      } }] },
+    }, '2026-06-22').sleep.sleep[0]
+
+    it('measures efficiency against time in bed, not the sleep period', () => {
+      const record = night({
+        minutesAsleep: '420',
+        minutesAwake: '45',
+        minutesInSleepPeriod: '465',
+        minutesToFallAsleep: '10',
+        minutesAfterWakeUp: '5',
+      }, { startTime: '2026-06-21T21:00:00Z', endTime: '2026-06-22T05:00:00Z' })
+
+      // 480 minutes in bed, 420 asleep. The sleep period excludes awake time and
+      // would report a misleading 90%.
+      expect(record.timeInBed).toBe(480)
+      expect(record.efficiency).toBe(88)
+      expect(record.minutesInSleepPeriod).toBe(465)
+    })
+
+    it('falls back to the accounted minutes when the interval is incomplete', () => {
+      const record = night({
+        minutesAsleep: '400',
+        minutesAwake: '40',
+        minutesInSleepPeriod: '440',
+        minutesToFallAsleep: '15',
+        minutesAfterWakeUp: '5',
+      })
+
+      expect(record.timeInBed).toBe(460)
+      expect(record.efficiency).toBe(87)
+    })
+
+    it('leaves efficiency unavailable when time in bed cannot be established', () => {
+      const record = night({ minutesAsleep: '400', minutesInSleepPeriod: '440' })
+
+      expect(record.timeInBed).toBeNull()
+      expect(record.efficiency).toBeNull()
+      expect(record.minutesInSleepPeriod).toBe(440)
+    })
+
+    it('ignores an interval that is shorter than the recorded sleep', () => {
+      const record = night({
+        minutesAsleep: '420',
+        minutesAwake: '30',
+        minutesInSleepPeriod: '450',
+      }, { startTime: '2026-06-22T04:00:00Z', endTime: '2026-06-22T05:00:00Z' })
+
+      expect(record.timeInBed).toBe(450)
+      expect(record.efficiency).toBe(93)
+    })
+
+    it('reports the same efficiency in the trend as on the selected night', () => {
+      const endpoints = __test.translateGoogleHealth({
+        sleepRaw: { dataPoints: [{ dataPointName: 'sleep-1', sleep: {
+          interval: {
+            civilEndTime: civil('2026-06-22'),
+            startTime: '2026-06-21T21:00:00Z',
+            endTime: '2026-06-22T05:00:00Z',
+          },
+          metadata: { nap: false },
+          summary: { minutesAsleep: '420', minutesAwake: '45', minutesInSleepPeriod: '465' },
+        } }] },
+      }, '2026-06-22')
+
+      const trendDay = endpoints.metricTrends.values.find((point: any) => point.dateTime === '2026-06-22')
+      expect(trendDay.sleepEfficiency).toBe(88)
+      expect(endpoints.sleepTrend.sleep[0].efficiency).toBe(88)
+    })
   })
 })
