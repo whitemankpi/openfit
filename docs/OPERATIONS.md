@@ -57,6 +57,18 @@ ports:
 - Do not replace the dual mapping with loopback-only: that breaks laptop access.
 - Do not replace it with LAN-only: that breaks the existing OAuth tunnel.
 
+The same untracked production modification also appends a CasaOS block, which registers the app in the CasaOS dashboard:
+
+```yaml
+x-casaos:
+  scheme: http
+  port_map: "42813"
+  index: /
+  is_uncontrolled: true
+```
+
+Compose ignores `x-*` extension keys, so it has no effect on the service. Preserve it alongside the private-network mapping; dropping it removes the app from the CasaOS UI. After every deploy, confirm both the dual port mapping and this block are still present in `/home/ubuntu/openfit/compose.yaml`.
+
 Expected production `APP_BASE_URL` and Google OAuth callback:
 
 ```text
