@@ -167,6 +167,7 @@ function parseActivities(input: unknown): ActivityItem[] {
     steps: numeric(item.steps),
     averagePaceSecondsPerMeter: numeric(item.averagePaceSecondsPerMeter),
     heartZoneMinutes: activityHeartZoneMinutes(item),
+    sources: asArray(item.sources).map(String).filter(Boolean),
   }))
 }
 

@@ -48,6 +48,7 @@ export interface ActivityItem {
   steps: number | null
   averagePaceSecondsPerMeter: number | null
   heartZoneMinutes: HeartZoneMinutes | null
+  sources: string[]
 }
 
 export type SleepStageKey = 'deep' | 'light' | 'rem' | 'wake'

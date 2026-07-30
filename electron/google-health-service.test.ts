@@ -6,6 +6,7 @@ const { __test } = require('./google-health-service.cjs') as {
   __test: {
     translateGoogleHealth: (raw: Record<string, any>, date: string, now?: Date) => Record<string, any>
     zonedMidnightMillis: (date: string, timeZone: string) => number
+    activitySourceLabel: (source: Record<string, any>) => string | null
   }
 }
 
@@ -355,5 +356,41 @@ describe('Google Health adapter', () => {
 
     expect(endpoints.heartIntraday['activities-heart-intraday'].dataset).toEqual([{ time: '10:15', value: 72 }])
     expect(endpoints.stepsIntraday['activities-steps-intraday'].dataset).toEqual([{ time: '09:00', value: 40 }])
+  })
+
+  it('adds compact raw source labels to reconciled workouts', () => {
+    const interval = {
+      startTime: '2026-06-22T07:09:21Z',
+      endTime: '2026-06-22T08:08:21Z',
+    }
+    const endpoints = __test.translateGoogleHealth({
+      activitiesRaw: { dataPoints: [{
+        exercise: { interval, exerciseType: 'WALKING', displayName: 'Walk', activeDuration: '3540s' },
+      }] },
+      activitySourcesRaw: { dataPoints: [{
+        dataSource: { platform: 'FITBIT' },
+        exercise: { interval, exerciseType: 'WALKING', displayName: 'Walk' },
+      }, {
+        dataSource: {
+          platform: 'HEALTH_CONNECT',
+          application: { packageName: 'com.kingsmith.xiaojin' },
+        },
+        exercise: {
+          interval: {
+            startTime: '2026-06-22T07:08:51Z',
+            endTime: '2026-06-22T08:08:56Z',
+          },
+          exerciseType: 'WALKING',
+          displayName: 'Walk',
+        },
+      }] },
+    }, '2026-06-22')
+
+    expect(endpoints.activities.activities[0].sources).toEqual(['WalkingPad', 'Fitbit'])
+    expect(__test.activitySourceLabel({
+      platform: 'HEALTH_CONNECT',
+      application: { packageName: 'com.wahoofitness.fitness' },
+      device: { manufacturer: 'Magene' },
+    })).toBe('Wahoo Fitness · Magene')
   })
 })

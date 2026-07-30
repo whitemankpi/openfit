@@ -113,6 +113,7 @@ function makeActivities(selectedDate: string): ActivityItem[] {
       steps: 7_842,
       averagePaceSecondsPerMeter: 38 * 60 / 6_240,
       heartZoneMinutes: { light: 6, moderate: 10, vigorous: 15, peak: 7 },
+      sources: ['Fitbit'],
     },
     {
       id: 'walk-demo',
@@ -127,6 +128,7 @@ function makeActivities(selectedDate: string): ActivityItem[] {
       steps: 2_236,
       averagePaceSecondsPerMeter: 24 * 60 / 1_720,
       heartZoneMinutes: { light: 16, moderate: 8, vigorous: 0, peak: 0 },
+      sources: ['WalkingPad', 'Fitbit'],
     },
     {
       id: 'strength-demo',
@@ -141,6 +143,7 @@ function makeActivities(selectedDate: string): ActivityItem[] {
       steps: null,
       averagePaceSecondsPerMeter: null,
       heartZoneMinutes: { light: 10, moderate: 15, vigorous: 18, peak: 3 },
+      sources: ['Wahoo Fitness · Magene'],
     },
   ]
 }

@@ -537,6 +537,7 @@ input:focus-visible,
 .activity-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .activity-copy strong { overflow: hidden; color: var(--color-mist); font-size: 13px; font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
 .activity-copy span { color: var(--color-slate); font-size: 13px; text-transform: capitalize; }
+.activity-copy .activity-source { color: color-mix(in srgb, var(--color-slate) 78%, transparent); font-size: 11px; text-transform: none; }
 .activity-meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; color: var(--color-fog); font-size: 13px; font-family: var(--font-mono); }
 .activity-panel [data-slot="separator"] { background: var(--color-graphite); }
 

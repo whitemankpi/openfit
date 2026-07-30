@@ -451,7 +451,7 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     ['nutritionDaily', () => dailyRollup(accessToken, 'nutrition-log', trendStart, dayAfter)],
     ['coreTemperatureDaily', () => dailyRollup(accessToken, 'core-body-temperature', trendStart, dayAfter)],
     ['stepsIntradayRaw', () => listData(accessToken, 'steps', 'interval', selectedDate, dayAfter, 'google-wearables')],
-    ['heartIntradayRaw', () => listData(accessToken, 'heart-rate', 'sample', selectedDate, dayAfter, 'google-wearables')],
+    ['heartIntradayRaw', () => listData(accessToken, 'heart-rate', 'sample', selectedDate, dayAfter, 'all-sources')],
     ['restingHeartRaw', () => listData(accessToken, 'daily-resting-heart-rate', 'daily', trendStart, dayAfter)],
     ['hrvRaw', () => listData(accessToken, 'daily-heart-rate-variability', 'daily', trendStart, dayAfter)],
     ['spo2Raw', () => listData(accessToken, 'daily-oxygen-saturation', 'daily', trendStart, dayAfter)],
@@ -461,6 +461,7 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     ['cardioRaw', () => listData(accessToken, 'daily-vo2-max', 'daily', trendStart, dayAfter)],
     ['sleepRaw', () => listData(accessToken, 'sleep', 'sleep', trendStart, dayAfter, 'google-wearables')],
     ['activitiesRaw', () => listData(accessToken, 'exercise', 'session', trendStart, dayAfter)],
+    ['activitySourcesRaw', () => listData(accessToken, 'exercise', 'session', trendStart, dayAfter, 'all-sources', 'list')],
     ['ecgRaw', () => listData(accessToken, 'electrocardiogram', 'ecg', ecgStart, dayAfter, 'all-sources', 'list')],
     ['irnProfileRaw', () => request('/users/me/irnProfile', accessToken)],
     ['irnAlertsRaw', () => listData(accessToken, 'irregular-rhythm-notification', 'session', trendStart, dayAfter, 'all-sources', 'list')],
@@ -549,6 +550,78 @@ function numeric(value, transform = (number) => number) {
   if (value === undefined || value === null || value === '') return null
   const parsed = Number(value)
   return Number.isFinite(parsed) ? transform(parsed) : null
+}
+
+const APPLICATION_LABELS = [
+  [/kingsmith|xiaojin/i, 'WalkingPad'],
+  [/wahoofitness|wahoo/i, 'Wahoo Fitness'],
+  [/whoop/i, 'WHOOP'],
+  [/magene/i, 'Magene'],
+  [/fitbit/i, 'Fitbit'],
+  [/google\.android\.apps\.fitness/i, 'Google Fit'],
+]
+
+function deviceSourceLabel(device) {
+  const displayName = String(device?.displayName || device?.model || '').trim()
+  const manufacturer = String(device?.manufacturer || '').trim()
+  if (displayName && manufacturer && !displayName.toLowerCase().includes(manufacturer.toLowerCase())) {
+    return `${manufacturer} ${displayName}`
+  }
+  return displayName || manufacturer || null
+}
+
+function applicationSourceLabel(application) {
+  const identity = String(application?.packageName || application?.bundleId || '').trim()
+  return APPLICATION_LABELS.find(([pattern]) => pattern.test(identity))?.[1] || null
+}
+
+function activitySourceLabel(dataSource) {
+  if (!dataSource || typeof dataSource !== 'object') return null
+  const application = applicationSourceLabel(dataSource.application)
+  const device = deviceSourceLabel(dataSource.device)
+  if (application && device && application !== device) return `${application} · ${device}`
+  if (application || device) return application || device
+  if (dataSource.platform === 'FITBIT') return 'Fitbit'
+  if (dataSource.platform === 'HEALTH_CONNECT') return 'Health Connect'
+  if (dataSource.platform === 'GOOGLE_WEB_API') return 'Google Health'
+  return null
+}
+
+function exerciseInterval(point) {
+  const exercise = point?.exercise || {}
+  const start = Date.parse(exercise.interval?.startTime || '')
+  const end = Date.parse(exercise.interval?.endTime || '')
+  return {
+    start,
+    end,
+    type: String(exercise.exerciseType || ''),
+    name: String(exercise.displayName || '').trim().toLowerCase(),
+  }
+}
+
+function matchingActivitySources(activityPoint, rawPoints) {
+  const activity = exerciseInterval(activityPoint)
+  if (!Number.isFinite(activity.start)) return []
+  const matches = rawPoints.filter((point) => {
+    const candidate = exerciseInterval(point)
+    if (!Number.isFinite(candidate.start)) return false
+    const startDelta = Math.abs(activity.start - candidate.start)
+    const overlaps = Number.isFinite(activity.end) && Number.isFinite(candidate.end)
+      && Math.min(activity.end, candidate.end) > Math.max(activity.start, candidate.start)
+    const sameType = activity.type && candidate.type && activity.type === candidate.type
+    const sameName = activity.name && candidate.name && activity.name === candidate.name
+    return (overlaps && (sameType || sameName)) || (startDelta <= 2 * 60_000 && (sameType || sameName))
+  })
+
+  const labels = [
+    activitySourceLabel(activityPoint?.dataSource),
+    ...matches.map((point) => activitySourceLabel(point?.dataSource)),
+  ].filter(Boolean)
+
+  return [...new Set(labels)].sort((left, right) => {
+    const rank = (label) => label === 'Fitbit' ? 2 : label === 'Health Connect' || label === 'Google Health' ? 1 : 0
+    return rank(left) - rank(right) || left.localeCompare(right)
+  })
 }
 
 function sleepStageKey(value) {
@@ -790,6 +863,7 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
       ...(point.electrocardiogram || {}),
       readingTime: point.electrocardiogram?.interval?.startTime,
     }))
+  const activitySourcePoints = dataPoints(raw.activitySourcesRaw)
   const activities = dataPoints(raw.activitiesRaw).map((point) => {
     const exercise = point.exercise || {}
     const summary = exercise.metricsSummary || {}
@@ -817,6 +891,7 @@ function translateGoogleHealth(raw, selectedDate, now = new Date()) {
       averagePaceSecondsPerMeter: numeric(summary.averagePaceSecondsPerMeter),
       heartZoneMinutes,
       activeZoneMinutes: { totalMinutes: summary.activeZoneMinutes },
+      sources: matchingActivitySources(point, activitySourcePoints),
     }
   })
 
@@ -914,5 +989,5 @@ module.exports = {
   revokeToken,
   syncData: syncGoogleHealthData,
   auditGoogleFitSteps,
-  __test: { translateGoogleHealth, dateFromCivil, durationSeconds, fitStepValue, zonedMidnightMillis },
+  __test: { translateGoogleHealth, dateFromCivil, durationSeconds, fitStepValue, zonedMidnightMillis, activitySourceLabel, matchingActivitySources },
 }

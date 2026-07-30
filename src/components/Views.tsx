@@ -149,6 +149,9 @@ function formatPace(secondsPerMeter: number | null | undefined) {
 
 function CompactActivity({ item, detailed = false }: { item: ActivityItem; detailed?: boolean }) {
   const pace = formatPace(item.averagePaceSecondsPerMeter)
+  const sourceSummary = item.sources.length > 2
+    ? `${item.sources.slice(0, 2).join(' + ')} +${item.sources.length - 2}`
+    : item.sources.join(' + ')
   const zoneDetails = [
     hasValue(item.heartZoneMinutes?.light) && item.heartZoneMinutes.light > 0 ? `Light ${formatNumber(item.heartZoneMinutes.light)} min` : null,
     hasValue(item.heartZoneMinutes?.moderate) && item.heartZoneMinutes.moderate > 0 ? `Moderate ${formatNumber(item.heartZoneMinutes.moderate)} min` : null,
@@ -160,7 +163,11 @@ function CompactActivity({ item, detailed = false }: { item: ActivityItem; detai
       <DuoIcon icon={ActivityIcon} className="activity-icon" />
       <div className="activity-copy">
         <strong>{item.name}</strong>
-        <span>{formatDate(item.date, { day: 'numeric', month: 'short' })}{item.time ? ` · ${item.time}` : ''}</span>
+        <span>
+          {formatDate(item.date, { day: 'numeric', month: 'short' })}
+          {item.time ? ` · ${item.time}` : ''}
+          {sourceSummary ? <small className="activity-source"> · {sourceSummary}</small> : null}
+        </span>
       </div>
       <div className="activity-meta">
         {item.durationMinutes > 0 && <span>{item.durationMinutes} min</span>}
