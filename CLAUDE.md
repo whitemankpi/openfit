@@ -1,8 +1,60 @@
-# OpenFit working context
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Before deployment/ops work
 
 Before deployment, server access, Docker, OAuth, synchronization, or production diagnostics, read:
 
 1. `docs/OPERATIONS.md`
-2. `.agents/OPERATIONS.local.md`, if present
+2. `.agents/OPERATIONS.local.md`, if present (git-ignored, holds machine-local SSH/tunnel access)
 
-Never print or commit `.env` values, OAuth tokens, encryption keys, passwords, or private-key contents. Preserve unrelated user files, especially the untracked `docs/PRD_AMAZFIT_INTEGRATION.md`.
+Never print or commit `.env` values, OAuth tokens, encryption keys, passwords, or private-key contents. Preserve unrelated user files, especially the untracked `docs/PRD_AMAZFIT_INTEGRATION.md` — do not stage, modify, or delete it unless the user explicitly asks.
+
+## Commands
+
+```bash
+npm run dev            # Vite + Electron together, hot reload
+npm run build           # tsc -b + vite build (renderer)
+npm run build:server    # tsc -p tsconfig.server.json (Docker/web server)
+npm run typecheck       # tsc -b --pretty false
+npm run check:electron  # node --check on each electron/*.cjs file
+npm test                # vitest run (all *.test.ts)
+npm run test:watch      # vitest watch mode
+npm run check           # typecheck + check:electron + test + build:web — run before considering work done
+npm run capture:ui      # Electron visual QA screenshots (desktop + mobile)
+npm run dist            # electron-builder packaging
+```
+
+Run a single test file: `npx vitest run src/lib/format.test.ts`. Tests live next to their source file (`foo.ts` / `foo.test.ts`), across `src/`, `electron/`, and `server/`.
+
+## Architecture
+
+OpenFit is an Electron desktop app (also deployable as a single-user Docker web server) that displays Fitbit/Google Health data. Full design rationale is in `docs/ARCHITECTURE.md`; read it before touching security boundaries, OAuth, or the provider contract.
+
+**Data path:** Fitbit Air syncs over BLE to the Fitbit/Google Health mobile app, which syncs to the cloud. There is no public BLE interface for desktop apps — OpenFit only ever talks to Google's cloud APIs (or the legacy Fitbit Web API), never the device directly.
+
+**Process boundaries (Electron):**
+- `electron/main.cjs` — owns the OAuth loopback server, Client Secret, access/refresh tokens, and all calls to `health.googleapis.com`/`api.fitbit.com`. Only process that reads/writes cache and credentials.
+- `electron/preload.cjs` — exposes a narrow `contextBridge` allowlist. No Node, no filesystem, no raw `ipcRenderer`, no tokens ever reach the renderer.
+- `src/` (renderer) — `nodeIntegration: false`, `contextIsolation: true`, sandboxed. Receives credential-free normalized payloads only.
+- `electron/codex-service.cjs` — bridges to a local `codex app-server` (JSONL over stdio) for the health assistant chat. Read-only sandbox, approvals disabled, tools denied by default; only a compact per-turn health context (no credentials) is sent to the model, and only after the user sends a message.
+
+**Provider adapters** (`electron/google-health-service.cjs`, `electron/fitbit-legacy-service.cjs`) each implement the same contract — `createPkce`, `createAuthorizationUrl`, `exchangeAuthorizationCode`, `refreshAccessToken`, `revokeToken`, `syncData` — and both produce the same `RawFitbitPayload` shape. Google Health API v4 is primary; the legacy Fitbit Web API is an isolated fallback slated for deprecation. Google Health and Google Fit (steps) use separate OAuth tokens because Google Health rejects tokens carrying Fitness scopes — both are refreshed independently.
+
+**Normalization:** `src/data/normalize.ts` converts any adapter's `RawFitbitPayload` into the single `DashboardData` shape consumed by views, so UI code never branches on provider. `src/types.ts` defines the shared renderer/preload contracts.
+
+**Resilience conventions baked into the adapters/cache:** per-metric reads are independent (a 403/404 on ECG doesn't cancel steps/sleep); Google Health calls are rate-limited (<5 req/s) with backoff on 429; cache writes are temp-file-plus-rename; a partially-failed sync never overwrites the last good cache; concurrent syncs are serialized.
+
+**Dual deployment targets:**
+- Desktop (Electron): credentials encrypted via `safeStorage` (Keychain/Credential Manager/Linux secret store). If `safeStorage` is unavailable, saving fails explicitly rather than falling back to plaintext.
+- Docker/web (`server/`, `Dockerfile`, `compose.yaml`): single-user web server with HTTP Basic auth; credentials and health cache encrypted in a persistent volume; refreshes the current day every 5 minutes and force-refreshes the previous day once after a date rollover.
+
+**UI conventions** (see README "Interface principles"): one primary metric per screen; hide empty/unavailable sections rather than showing empty cards; one accent color for status/progress/actions; intraday samples are aggregated for chart rendering without altering min/max/latest values.
+
+## Other docs
+
+- `docs/DATA_COVERAGE.md` — which metrics come from which API, and hard limits (no BLE stream, no proprietary scores like Readiness/Stress, GPS not map-rendered yet).
+- `docs/GOOGLE_HEALTH_SETUP.md` — full OAuth/Cloud console setup walkthrough.
+- `docs/RELEASE.md` — signing, notarization, release checklist.
+- `docs/OPERATIONS.md` — deployment/ops (read before any ops task, per above).
