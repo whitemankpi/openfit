@@ -4,7 +4,7 @@ import { PassThrough, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const { createCodexService } = require('./codex-service.cjs') as {
+const { createCodexService } = require('./assistant-codex.cjs') as {
   createCodexService: (options?: Record<string, unknown>) => {
     getStatus: () => Record<string, unknown>
     start: () => Promise<Record<string, unknown>>

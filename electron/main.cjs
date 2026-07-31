@@ -10,7 +10,7 @@ const { fileURLToPath } = require('node:url')
 const googleHealth = require('./google-health-service.cjs')
 const fitbitLegacy = require('./fitbit-legacy-service.cjs')
 const healthCache = require('./health-cache.cjs')
-const { createCodexService, resolveCodexBinary } = require('./codex-service.cjs')
+const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
