@@ -152,3 +152,51 @@ describe('weekday_pattern', () => {
     expect(result.weekdays.every((entry) => entry.n > 0)).toBe(true)
   })
 })
+
+describe('correlate', () => {
+  it('pairs two metrics and reports rho with its count', () => {
+    const result = runTool('correlate', {
+      first: 'steps',
+      second: 'activeMinutes',
+      lagDays: 0,
+      start: '2026-04-01',
+      end: '2026-06-30',
+    }, context()) as { rho: number | null; n: number; significant: boolean }
+
+    expect(result.n).toBeGreaterThan(80)
+    expect(result.rho).not.toBeNull()
+  })
+
+  it('offsets the second metric by the requested lag', () => {
+    const sameDay = runTool('correlate', {
+      first: 'steps', second: 'restingHeartRate', lagDays: 0,
+      start: '2026-04-01', end: '2026-06-30',
+    }, context()) as { n: number }
+    const nextDay = runTool('correlate', {
+      first: 'steps', second: 'restingHeartRate', lagDays: 1,
+      start: '2026-04-01', end: '2026-06-30',
+    }, context()) as { n: number }
+
+    // A one-day lag drops the final pair, which has no following day.
+    expect(nextDay.n).toBe(sameDay.n - 1)
+  })
+
+  it('still returns rho below the threshold, flagged as not significant', () => {
+    const result = runTool('correlate', {
+      first: 'steps', second: 'weight', lagDays: 0,
+      start: '2026-06-20', end: '2026-06-30',
+    }, context()) as { rho: number | null; n: number; significant: boolean }
+
+    expect(result.n).toBeLessThan(30)
+    expect(result.significant).toBe(false)
+  })
+
+  it('refuses a lag outside the supported range', () => {
+    const result = runTool('correlate', {
+      first: 'steps', second: 'weight', lagDays: 99,
+      start: '2026-04-01', end: '2026-06-30',
+    }, context()) as { error: string }
+
+    expect(result.error).toContain('lagDays')
+  })
+})

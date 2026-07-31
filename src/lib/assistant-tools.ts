@@ -2,7 +2,7 @@ import type { DashboardData, TrendPoint } from '@/types'
 import type { History } from '@/data/history'
 import { robustBaseline } from './home-analysis'
 import { computeScores, type ScoreKey } from './scores'
-import { weekdayMedians } from './analytics'
+import { weekdayMedians, spearman } from './analytics'
 
 export interface ToolContext {
   data: DashboardData
@@ -274,12 +274,84 @@ const weekdayPattern: ToolDefinition = {
   },
 }
 
+/** Days the second metric may trail the first by, in either direction. */
+const MAX_LAG_DAYS = 14
+
+function shiftIso(date: string, days: number) {
+  const parsed = new Date(`${date}T12:00:00Z`)
+  parsed.setUTCDate(parsed.getUTCDate() + days)
+  return parsed.toISOString().slice(0, 10)
+}
+
+const correlate: ToolDefinition = {
+  name: 'correlate',
+  description: 'Spearman correlation between two metrics, optionally offsetting the second by a number of days.',
+  schema: {
+    type: 'object',
+    properties: {
+      first: { type: 'string', enum: METRIC_KEYS },
+      second: { type: 'string', enum: METRIC_KEYS },
+      lagDays: { type: 'integer', description: `Days to offset the second metric, -${MAX_LAG_DAYS}..${MAX_LAG_DAYS}` },
+      start: { type: 'string', description: 'YYYY-MM-DD' },
+      end: { type: 'string', description: 'YYYY-MM-DD' },
+    },
+    required: ['first', 'second', 'lagDays', 'start', 'end'],
+  },
+  run: (args, context) => {
+    const first = readMetric({ metric: args.first })
+    if ('error' in first) return first
+    const second = readMetric({ metric: args.second })
+    if ('error' in second) return second
+    const range = readRange(args)
+    if ('error' in range) return range
+
+    const lagDays = Number(args.lagDays)
+    if (!Number.isInteger(lagDays) || Math.abs(lagDays) > MAX_LAG_DAYS) {
+      return toolError(`lagDays must be a whole number between -${MAX_LAG_DAYS} and ${MAX_LAG_DAYS}.`)
+    }
+
+    // Get accessors with own-property check, matching seriesFor pattern
+    if (!Object.prototype.hasOwnProperty.call(METRICS, first.metric)) return toolError(`Metric not found: ${first.metric}`)
+    if (!Object.prototype.hasOwnProperty.call(METRICS, second.metric)) return toolError(`Metric not found: ${second.metric}`)
+    const leftAccessor = METRICS[first.metric]!
+    const rightAccessor = METRICS[second.metric]!
+
+    const byDate = new Map(context.history.days.map((day) => [day.date, day.trend]))
+    const pairs: Array<[number, number]> = []
+    for (const day of context.history.days) {
+      if (day.date < range.start || day.date > range.end) continue
+
+      const left = leftAccessor(day.trend)
+      const partner = byDate.get(shiftIso(day.date, lagDays))
+      const right = partner ? rightAccessor(partner) : null
+
+      if (left !== null && right !== null && Number.isFinite(left) && Number.isFinite(right)) {
+        pairs.push([left, right])
+      }
+    }
+
+    const result = spearman(pairs)
+    return {
+      first: first.metric,
+      second: second.metric,
+      lagDays,
+      start: range.start,
+      end: range.end,
+      rho: result.rho,
+      n: result.n,
+      significant: result.significant,
+      note: 'Correlation is not causation.',
+    }
+  },
+}
+
 export const ASSISTANT_TOOLS: ToolDefinition[] = [
   metricWindow,
   explainScore,
   dataCoverage,
   comparePeriods,
   weekdayPattern,
+  correlate,
 ]
 
 export const TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name)
