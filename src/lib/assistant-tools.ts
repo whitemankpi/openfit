@@ -2,6 +2,7 @@ import type { DashboardData, TrendPoint } from '@/types'
 import type { History } from '@/data/history'
 import { robustBaseline } from './home-analysis'
 import { computeScores, type ScoreKey } from './scores'
+import { weekdayMedians } from './analytics'
 
 export interface ToolContext {
   data: DashboardData
@@ -204,7 +205,82 @@ const metricWindow: ToolDefinition = {
   },
 }
 
-export const ASSISTANT_TOOLS: ToolDefinition[] = [metricWindow, explainScore, dataCoverage]
+const comparePeriods: ToolDefinition = {
+  name: 'compare_periods',
+  description: 'Compare one metric between two date ranges: median of each, the difference, and the count behind each.',
+  schema: {
+    type: 'object',
+    properties: {
+      metric: { type: 'string', enum: METRIC_KEYS },
+      firstStart: { type: 'string', description: 'YYYY-MM-DD' },
+      firstEnd: { type: 'string', description: 'YYYY-MM-DD' },
+      secondStart: { type: 'string', description: 'YYYY-MM-DD' },
+      secondEnd: { type: 'string', description: 'YYYY-MM-DD' },
+    },
+    required: ['metric', 'firstStart', 'firstEnd', 'secondStart', 'secondEnd'],
+  },
+  run: (args, context) => {
+    const metric = readMetric(args)
+    if ('error' in metric) return metric
+    const first = readRange(args, 'firstStart', 'firstEnd')
+    if ('error' in first) return first
+    const second = readRange(args, 'secondStart', 'secondEnd')
+    if ('error' in second) return second
+
+    const summarise = (start: string, end: string) => {
+      const values = finite(seriesFor(context, metric.metric, start, end).map((point) => point.value))
+      return { start, end, n: values.length, median: robustBaseline(values).center }
+    }
+    const firstSummary = summarise(first.start, first.end)
+    const secondSummary = summarise(second.start, second.end)
+
+    if (firstSummary.median === null || secondSummary.median === null) {
+      return { insufficient: true, metric: metric.metric, first: firstSummary, second: secondSummary }
+    }
+    const delta = secondSummary.median - firstSummary.median
+    return {
+      metric: metric.metric,
+      first: firstSummary,
+      second: secondSummary,
+      delta,
+      percentChange: firstSummary.median === 0 ? null : Math.round((delta / firstSummary.median) * 1000) / 10,
+    }
+  },
+}
+
+const weekdayPattern: ToolDefinition = {
+  name: 'weekday_pattern',
+  description: 'Median of one metric for each day of the week over a range, with the count behind each day.',
+  schema: {
+    type: 'object',
+    properties: {
+      metric: { type: 'string', enum: METRIC_KEYS },
+      start: { type: 'string', description: 'YYYY-MM-DD' },
+      end: { type: 'string', description: 'YYYY-MM-DD' },
+    },
+    required: ['metric', 'start', 'end'],
+  },
+  run: (args, context) => {
+    const metric = readMetric(args)
+    if ('error' in metric) return metric
+    const range = readRange(args)
+    if ('error' in range) return range
+
+    const points = seriesFor(context, metric.metric, range.start, range.end)
+    if (!finite(points.map((point) => point.value)).length) {
+      return { insufficient: true, n: 0, metric: metric.metric }
+    }
+    return { metric: metric.metric, start: range.start, end: range.end, weekdays: weekdayMedians(points) }
+  },
+}
+
+export const ASSISTANT_TOOLS: ToolDefinition[] = [
+  metricWindow,
+  explainScore,
+  dataCoverage,
+  comparePeriods,
+  weekdayPattern,
+]
 
 export const TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name)
 

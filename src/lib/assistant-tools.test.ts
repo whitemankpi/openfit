@@ -107,3 +107,48 @@ describe('data_coverage', () => {
     expect(result.missing).toContain('hrvMs')
   })
 })
+
+describe('compare_periods', () => {
+  it('reports both medians, the delta, and each n', () => {
+    const result = runTool('compare_periods', {
+      metric: 'steps',
+      firstStart: '2026-06-01',
+      firstEnd: '2026-06-15',
+      secondStart: '2026-06-16',
+      secondEnd: '2026-06-30',
+    }, context()) as {
+      first: { median: number | null; n: number }
+      second: { median: number | null; n: number }
+      delta: number | null
+    }
+
+    expect(result.first.n).toBe(15)
+    expect(result.second.n).toBe(15)
+    expect(result.delta).toBeCloseTo((result.second.median as number) - (result.first.median as number), 5)
+  })
+
+  it('reports insufficient when one period has no data', () => {
+    const result = runTool('compare_periods', {
+      metric: 'steps',
+      firstStart: '2020-01-01',
+      firstEnd: '2020-01-15',
+      secondStart: '2026-06-16',
+      secondEnd: '2026-06-30',
+    }, context()) as { insufficient: boolean }
+
+    expect(result.insufficient).toBe(true)
+  })
+})
+
+describe('weekday_pattern', () => {
+  it('returns a median per weekday with its count', () => {
+    const result = runTool('weekday_pattern', {
+      metric: 'steps',
+      start: '2026-04-01',
+      end: '2026-06-30',
+    }, context()) as { weekdays: Array<{ weekday: number; median: number | null; n: number }> }
+
+    expect(result.weekdays).toHaveLength(7)
+    expect(result.weekdays.every((entry) => entry.n > 0)).toBe(true)
+  })
+})
