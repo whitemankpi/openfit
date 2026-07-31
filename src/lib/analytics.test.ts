@@ -35,6 +35,17 @@ describe('spearman', () => {
     expect(result.rho).toBeCloseTo(1, 10)
   })
 
+  it('averages ranks for ties, which a naive ranking would get wrong', () => {
+    // x ties at positions 0-1, y ties at positions 1-2 — asymmetric positions
+    // ensure a ranking that does not average would report a perfect correlation (1)
+    // but correct average ranking discriminates with rho ≈ 0.833. This test
+    // catches regressions where tie handling is removed or simplified.
+    const result = spearman([[1, 1], [1, 2], [2, 2], [3, 3]])
+
+    expect(result.rho).toBeCloseTo(0.833, 3)
+    expect(result.rho).not.toBe(1)
+  })
+
   it('has no coefficient for a series that never varies', () => {
     const result = spearman(pairsFrom([5, 5, 5, 5], [1, 2, 3, 4]))
 
