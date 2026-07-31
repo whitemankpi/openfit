@@ -129,7 +129,6 @@ export default function App() {
   const [archive, setArchive] = useState<RawHealthArchive | null>(null)
   const [rangeDays, setRangeDays] = useState<RangeDays>(30)
   const [assistantConfig, setAssistantConfig] = useState<AssistantConfig>({ provider: 'codex', hasApiKey: false })
-  const [deepSeekKey, setDeepSeekKey] = useState('')
   const selectedDateRef = useRef(selectedDate)
   const dataDateRef = useRef(data.selectedDate)
   const syncingRef = useRef(false)
@@ -382,13 +381,15 @@ export default function App() {
   }
 
   const saveAssistantConfig = async (input: { provider: AssistantProvider; apiKey?: string }) => {
-    if (!window.healthAssistant) return
+    if (!window.healthAssistant) return false
     try {
       const saved = await window.healthAssistant.saveConfig(input)
       setAssistantConfig(saved)
-      setDeepSeekKey('')
+      setToast({ tone: 'success', message: 'Assistant model updated.' })
+      return true
     } catch (error) {
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to save the assistant configuration.' })
+      return false
     }
   }
 
@@ -610,9 +611,6 @@ export default function App() {
         onExport={exportData}
         onDisconnect={disconnect}
         assistantConfig={assistantConfig}
-        onAssistantConfigChange={setAssistantConfig}
-        deepSeekKey={deepSeekKey}
-        onDeepSeekKeyChange={setDeepSeekKey}
         onSaveAssistantConfig={saveAssistantConfig}
       />
 
@@ -767,9 +765,6 @@ function SettingsDialog({
   onExport,
   onDisconnect,
   assistantConfig,
-  onAssistantConfigChange,
-  deepSeekKey,
-  onDeepSeekKeyChange,
   onSaveAssistantConfig,
 }: {
   open: boolean
@@ -782,16 +777,16 @@ function SettingsDialog({
   onExport: () => Promise<void>
   onDisconnect: () => Promise<void>
   assistantConfig: AssistantConfig
-  onAssistantConfigChange: (updater: (current: AssistantConfig) => AssistantConfig) => void
-  deepSeekKey: string
-  onDeepSeekKeyChange: (value: string) => void
-  onSaveAssistantConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<void>
+  onSaveAssistantConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<boolean>
 }) {
   const [clientId, setClientId] = useState(status.clientId)
   const [clientSecret, setClientSecret] = useState('')
   const [redirectUri, setRedirectUri] = useState(status.redirectUri)
   const [provider, setProvider] = useState<HealthProvider>(status.provider)
   const [editing, setEditing] = useState(!status.configured)
+  const [assistantProvider, setAssistantProvider] = useState<AssistantProvider>(assistantConfig.provider)
+  const [deepSeekKey, setDeepSeekKey] = useState('')
+  const [savingAssistant, setSavingAssistant] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -801,6 +796,12 @@ function SettingsDialog({
     setClientSecret('')
     setEditing(!status.configured)
   }, [open, status])
+
+  useEffect(() => {
+    if (!open) return
+    setAssistantProvider(assistantConfig.provider)
+    setDeepSeekKey('')
+  }, [open, assistantConfig.provider])
 
   const secretRequired = provider === 'google-health'
   const providerLabel = provider === 'google-health' ? 'Google Health' : 'Fitbit legacy'
@@ -819,10 +820,19 @@ function SettingsDialog({
       clientSecret: clientSecret.trim() || undefined,
       redirectUri: redirectUri.trim(),
     })
-    void onSaveAssistantConfig({
-      provider: assistantConfig.provider,
+  }
+
+  const assistantKeyMissing = assistantProvider === 'deepseek' && !deepSeekKey.trim() && !assistantConfig.hasApiKey
+  const assistantUnchanged = assistantProvider === assistantConfig.provider && !deepSeekKey.trim()
+
+  const submitAssistant = async () => {
+    setSavingAssistant(true)
+    const ok = await onSaveAssistantConfig({
+      provider: assistantProvider,
       ...(deepSeekKey.trim() ? { apiKey: deepSeekKey.trim() } : {}),
     })
+    setSavingAssistant(false)
+    if (ok) setDeepSeekKey('')
   }
 
   const openDeveloperPortal = () => {
@@ -891,46 +901,55 @@ function SettingsDialog({
             <button type="button" className="portal-link" onClick={openDeveloperPortal}>Open developer console <ExternalIcon /></button>
             <div className="scope-note"><ShieldIcon /><p>Read-only permissions for activity, heart, sleep, and authorized measurements.</p></div>
 
-            <div className="settings-section">
-              <Label>Assistant model</Label>
-              <div className="range-selector" role="group" aria-label="Assistant model">
-                {(['codex', 'deepseek'] as AssistantProvider[]).map((assistantProvider) => (
-                  <button
-                    key={assistantProvider}
-                    type="button"
-                    className={cn('range-option', assistantConfig.provider === assistantProvider && 'is-selected')}
-                    aria-pressed={assistantConfig.provider === assistantProvider}
-                    onClick={() => onAssistantConfigChange((current) => ({ ...current, provider: assistantProvider }))}
-                  >
-                    {assistantProvider === 'codex' ? 'Codex' : 'DeepSeek'}
-                  </button>
-                ))}
-              </div>
-              {assistantConfig.provider === 'deepseek' && (
-                <div className="form-field">
-                  <Label htmlFor="deepseek-key">DeepSeek API key</Label>
-                  <Input
-                    id="deepseek-key"
-                    type="password"
-                    autoComplete="off"
-                    placeholder={assistantConfig.hasApiKey ? 'Stored — leave blank to keep' : 'sk-…'}
-                    value={deepSeekKey}
-                    onChange={(event) => onDeepSeekKeyChange(event.target.value)}
-                  />
-                </div>
-              )}
-              <p className="settings-note">
-                Both options send the conversation to a remote model, so health data leaves this machine while you chat.
-                Nothing is sent until you send a message.
-              </p>
-            </div>
-
             <DialogFooter className="settings-footer">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={!canSave || connecting}>{connecting ? <LoaderIcon className="spin" /> : <CloudIcon />} Save and connect</Button>
             </DialogFooter>
           </form>
         )}
+
+        <div className="settings-section">
+          <Label>Assistant model</Label>
+          <div className="range-selector" role="group" aria-label="Assistant model">
+            {(['codex', 'deepseek'] as AssistantProvider[]).map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={cn('range-option', assistantProvider === option && 'is-selected')}
+                aria-pressed={assistantProvider === option}
+                onClick={() => setAssistantProvider(option)}
+              >
+                {option === 'codex' ? 'Codex' : 'DeepSeek'}
+              </button>
+            ))}
+          </div>
+          {assistantProvider === 'deepseek' && (
+            <div className="form-field">
+              <Label htmlFor="deepseek-key">DeepSeek API key</Label>
+              <Input
+                id="deepseek-key"
+                type="password"
+                autoComplete="off"
+                placeholder={assistantConfig.hasApiKey ? 'Stored — leave blank to keep' : 'sk-…'}
+                value={deepSeekKey}
+                onChange={(event) => setDeepSeekKey(event.target.value)}
+              />
+            </div>
+          )}
+          <p className="settings-note">
+            Both options send the conversation to a remote model, so health data leaves this machine while you chat.
+            Nothing is sent until you send a message.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="settings-section-save"
+            disabled={savingAssistant || assistantKeyMissing || assistantUnchanged}
+            onClick={() => void submitAssistant()}
+          >
+            {savingAssistant ? <LoaderCircle className="spin" /> : <SettingsIcon />} Save assistant model
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

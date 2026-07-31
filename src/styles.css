@@ -741,6 +741,7 @@ input:focus-visible,
 .settings-section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--color-graphite); }
 .settings-section > [data-slot="label"] { color: var(--color-fog); font-size: 13px; }
 .settings-section .range-selector { align-self: flex-start; }
+.settings-section-save { align-self: flex-start; }
 .settings-note { margin: 10px 0 0; color: var(--color-slate); font-size: 13px; line-height: 1.5; }
 
 @media (max-width: 1080px) {
