@@ -27,7 +27,7 @@ Spec: `docs/superpowers/specs/2026-07-31-assistant-tools-and-providers-design.md
 
 ## Dependency on Phase 4a
 
-Tasks 4 and 5 (`correlate`, `compare_periods`, `weekday_pattern`) consume the deterministic analytics module from Phase 4a, which **must land first**. This plan assumes Phase 4a exports from `src/lib/analytics.ts`:
+Tasks 4 and 5 (`correlate`, `compare_periods`, `weekday_pattern`) consume the deterministic analytics module from Phase 4a, which **must land first**. Task 3a builds exactly the part of Phase 4a these tools consume, so this plan is self-contained. It exports from `src/lib/analytics.ts`:
 
 ```ts
 export interface CorrelationResult { rho: number | null; n: number; significant: boolean }
@@ -36,12 +36,13 @@ export interface WeekdayStat { weekday: number; median: number | null; n: number
 export function weekdayMedians(points: Array<{ date: string; value: number | null }>): WeekdayStat[]
 ```
 
-If Phase 4a is not yet merged when this plan starts, stop and build it first. Tasks 1, 2, 3, 6, 7, 8, 9, 10 do not depend on it and may proceed.
+The remainder of Phase 4a — correlation charts, weekly-pattern views, automatic insights, period comparison in the interface — is separate work and is not part of this plan.
 
 ## File Structure
 
 | File | Responsibility |
 |---|---|
+| `src/lib/analytics.ts` (create) | Spearman correlation and weekday medians. Consumed by the correlation and weekday tools. |
 | `src/lib/assistant-tools.ts` (create) | Tool definitions, schemas, and pure `run` implementations. No provider or IPC knowledge. |
 | `src/lib/assistant-tools.test.ts` (create) | Fixture-driven tests for every tool. |
 | `electron/assistant-dispatch.cjs` (create) | Name allowlist, argument validation, call budget, result-shape and size checks. Pure logic, no Electron imports. |
@@ -56,7 +57,6 @@ If Phase 4a is not yet merged when this plan starts, stop and build it first. Ta
 | `src/types.ts` (modify) | `AssistantProvider`, `AssistantConfig`, `ToolActivity`, bridge signatures. |
 | `src/components/HealthAssistant.tsx` (modify) | Tool-activity line, provider indicator, tool-request handling. |
 | `src/App.tsx` (modify) | Provider settings UI. |
-| `server/index.ts` (modify) | Same dispatcher, direct tool execution, no renderer hop. |
 
 ---
 
@@ -581,6 +581,290 @@ Expected: PASS (8 tests).
 ```bash
 git add src/lib/assistant-tools.ts src/lib/assistant-tools.test.ts
 git commit -m "feat(assistant): add explain_score and data_coverage tools"
+```
+
+---
+
+## Task 3a: Deterministic analytics
+
+Phase 4a's core, reduced to exactly what Tasks 4 and 5 consume. The charts and
+insights that also belong to Phase 4a are a separate concern and are not built
+here.
+
+**Files:**
+- Create: `src/lib/analytics.ts`
+- Create: `src/lib/analytics.test.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+
+```ts
+export interface CorrelationResult { rho: number | null; n: number; significant: boolean }
+export function spearman(pairs: Array<[number, number]>): CorrelationResult
+export interface WeekdayStat { weekday: number; median: number | null; n: number }
+export function weekdayMedians(points: Array<{ date: string; value: number | null }>): WeekdayStat[]
+export const CORRELATION_MIN_SAMPLES = 30
+export const CORRELATION_MIN_RHO = 0.3
+```
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/lib/analytics.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { CORRELATION_MIN_SAMPLES, spearman, weekdayMedians } from './analytics'
+
+const pairsFrom = (xs: number[], ys: number[]): Array<[number, number]> =>
+  xs.map((x, index) => [x, ys[index]] as [number, number])
+
+describe('spearman', () => {
+  it('reports a perfect monotonic rise as 1', () => {
+    const xs = Array.from({ length: 40 }, (_, index) => index)
+    const result = spearman(pairsFrom(xs, xs.map((x) => x * 3 + 1)))
+
+    expect(result.rho).toBeCloseTo(1, 10)
+    expect(result.n).toBe(40)
+    expect(result.significant).toBe(true)
+  })
+
+  it('reports a perfect monotonic fall as -1', () => {
+    const xs = Array.from({ length: 40 }, (_, index) => index)
+    const result = spearman(pairsFrom(xs, xs.map((x) => -x)))
+
+    expect(result.rho).toBeCloseTo(-1, 10)
+  })
+
+  it('ranks by order rather than by value, unlike Pearson', () => {
+    // y rises monotonically but wildly non-linearly; Spearman still sees 1.
+    const xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    const ys = [1, 2, 4, 8, 16, 32, 64, 128, 256, 100_000]
+
+    expect(spearman(pairsFrom(xs, ys)).rho).toBeCloseTo(1, 10)
+  })
+
+  it('handles tied values with average ranks', () => {
+    const result = spearman(pairsFrom([1, 2, 2, 3], [10, 20, 20, 30]))
+
+    expect(result.rho).toBeCloseTo(1, 10)
+  })
+
+  it('has no coefficient for a series that never varies', () => {
+    const result = spearman(pairsFrom([5, 5, 5, 5], [1, 2, 3, 4]))
+
+    expect(result.rho).toBeNull()
+    expect(result.significant).toBe(false)
+  })
+
+  it('reports too few pairs as not significant while still giving rho', () => {
+    const xs = Array.from({ length: 10 }, (_, index) => index)
+    const result = spearman(pairsFrom(xs, xs))
+
+    expect(result.n).toBe(10)
+    expect(result.rho).toBeCloseTo(1, 10)
+    // Below the sample floor the relationship is not claimable.
+    expect(result.significant).toBe(false)
+    expect(CORRELATION_MIN_SAMPLES).toBe(30)
+  })
+
+  it('reports a weak relationship as not significant', () => {
+    const pairs: Array<[number, number]> = Array.from({ length: 40 }, (_, index) => [
+      index,
+      index % 2 ? index : 40 - index,
+    ])
+    const result = spearman(pairs)
+
+    expect(Math.abs(result.rho as number)).toBeLessThan(0.3)
+    expect(result.significant).toBe(false)
+  })
+
+  it('returns nothing for an empty input', () => {
+    expect(spearman([])).toEqual({ rho: null, n: 0, significant: false })
+  })
+})
+
+describe('weekdayMedians', () => {
+  it('returns one entry per weekday, Monday first', () => {
+    // 2026-06-01 is a Monday.
+    const points = Array.from({ length: 28 }, (_, index) => {
+      const date = new Date(Date.UTC(2026, 5, 1 + index))
+      return { date: date.toISOString().slice(0, 10), value: index }
+    })
+    const result = weekdayMedians(points)
+
+    expect(result).toHaveLength(7)
+    expect(result[0].weekday).toBe(1)
+    expect(result[6].weekday).toBe(0)
+    expect(result.every((entry) => entry.n === 4)).toBe(true)
+  })
+
+  it('takes the median, not the mean, so one outlier does not move it', () => {
+    const points = [
+      { date: '2026-06-01', value: 10 },
+      { date: '2026-06-08', value: 12 },
+      { date: '2026-06-15', value: 14 },
+      { date: '2026-06-22', value: 10_000 },
+    ]
+    const monday = weekdayMedians(points).find((entry) => entry.weekday === 1)
+
+    expect(monday?.median).toBe(13)
+    expect(monday?.n).toBe(4)
+  })
+
+  it('reports a weekday with no data as null rather than zero', () => {
+    const monday = { date: '2026-06-01', value: 5 }
+    const result = weekdayMedians([monday])
+    const tuesday = result.find((entry) => entry.weekday === 2)
+
+    expect(tuesday?.median).toBeNull()
+    expect(tuesday?.n).toBe(0)
+  })
+
+  it('skips gaps without counting them', () => {
+    const points = [
+      { date: '2026-06-01', value: 10 },
+      { date: '2026-06-08', value: null },
+      { date: '2026-06-15', value: 20 },
+    ]
+    const monday = weekdayMedians(points).find((entry) => entry.weekday === 1)
+
+    expect(monday?.median).toBe(15)
+    expect(monday?.n).toBe(2)
+  })
+})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run src/lib/analytics.test.ts`
+Expected: FAIL — cannot resolve `./analytics`.
+
+- [ ] **Step 3: Write the implementation**
+
+Create `src/lib/analytics.ts`:
+
+```ts
+/** Pairs below this count cannot support a claimed relationship. */
+export const CORRELATION_MIN_SAMPLES = 30
+/** Below this magnitude the relationship is too weak to report as one. */
+export const CORRELATION_MIN_RHO = 0.3
+
+export interface CorrelationResult {
+  rho: number | null
+  n: number
+  /** Whether the result clears both the sample floor and the strength floor. */
+  significant: boolean
+}
+
+/**
+ * Average ranks, so tied values share the mean of the ranks they span. Without
+ * this, ties would silently bias the coefficient.
+ */
+function rank(values: number[]): number[] {
+  const order = values
+    .map((value, index) => ({ value, index }))
+    .sort((left, right) => left.value - right.value)
+  const ranks = new Array<number>(values.length)
+
+  let position = 0
+  while (position < order.length) {
+    let end = position
+    while (end + 1 < order.length && order[end + 1].value === order[position].value) end += 1
+    const shared = (position + end) / 2 + 1
+    for (let index = position; index <= end; index += 1) ranks[order[index].index] = shared
+    position = end + 1
+  }
+  return ranks
+}
+
+/**
+ * Spearman rather than Pearson: health relationships are monotonic far more
+ * often than linear, and rank correlation is not thrown by the occasional
+ * extreme day.
+ */
+export function spearman(pairs: Array<[number, number]>): CorrelationResult {
+  const usable = pairs.filter(([left, right]) => Number.isFinite(left) && Number.isFinite(right))
+  const n = usable.length
+  if (n < 3) return { rho: null, n, significant: false }
+
+  const leftRanks = rank(usable.map(([left]) => left))
+  const rightRanks = rank(usable.map(([, right]) => right))
+  const meanRank = (n + 1) / 2
+
+  let covariance = 0
+  let leftVariance = 0
+  let rightVariance = 0
+  for (let index = 0; index < n; index += 1) {
+    const left = leftRanks[index] - meanRank
+    const right = rightRanks[index] - meanRank
+    covariance += left * right
+    leftVariance += left * left
+    rightVariance += right * right
+  }
+  // A series with no variation has no ranks to correlate against.
+  if (leftVariance === 0 || rightVariance === 0) return { rho: null, n, significant: false }
+
+  const rho = covariance / Math.sqrt(leftVariance * rightVariance)
+  return {
+    rho: Math.round(rho * 1000) / 1000,
+    n,
+    significant: n >= CORRELATION_MIN_SAMPLES && Math.abs(rho) >= CORRELATION_MIN_RHO,
+  }
+}
+
+export interface WeekdayStat {
+  /** JavaScript weekday number: 0 is Sunday. */
+  weekday: number
+  median: number | null
+  n: number
+}
+
+function median(values: number[]) {
+  if (!values.length) return null
+  const sorted = [...values].sort((left, right) => left - right)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+/**
+ * Median per weekday, Monday first, because a weekly rhythm reads more
+ * naturally starting from the working week.
+ */
+export function weekdayMedians(points: Array<{ date: string; value: number | null }>): WeekdayStat[] {
+  const buckets = new Map<number, number[]>()
+  for (const point of points) {
+    if (point.value === null || !Number.isFinite(point.value)) continue
+    const weekday = new Date(`${point.date}T12:00:00Z`).getUTCDay()
+    if (!Number.isFinite(weekday)) continue
+    const bucket = buckets.get(weekday)
+    if (bucket) bucket.push(point.value)
+    else buckets.set(weekday, [point.value])
+  }
+
+  const mondayFirst = [1, 2, 3, 4, 5, 6, 0]
+  return mondayFirst.map((weekday) => {
+    const values = buckets.get(weekday) ?? []
+    return { weekday, median: median(values), n: values.length }
+  })
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run src/lib/analytics.test.ts`
+Expected: PASS (12 tests).
+
+- [ ] **Step 5: Run the gate**
+
+Run: `npm run check`
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/lib/analytics.ts src/lib/analytics.test.ts
+git commit -m "feat(analytics): add Spearman correlation and weekday medians"
 ```
 
 ---
@@ -2258,59 +2542,7 @@ git commit -m "feat(assistant): let Codex reach the local tools"
 
 ---
 
-## Task 13: Server parity
-
-The hosted deployment runs the same loop without a renderer.
-
-**Files:**
-- Modify: `server/index.ts`
-
-**Interfaces:**
-- Consumes: `createDispatcher` (Task 6), `runTool`/`ASSISTANT_TOOLS`/`TOOL_NAMES` (Tasks 2–5).
-- Produces: no new exports.
-
-- [ ] **Step 1: Import the shared pieces**
-
-`server/index.ts` is TypeScript, so it imports the tools directly rather than going through a renderer:
-
-```ts
-import { ASSISTANT_TOOLS, TOOL_NAMES, runTool } from '../src/lib/assistant-tools.js'
-const { createDispatcher } = require(path.resolve('electron/assistant-dispatch.cjs'))
-```
-
-- [ ] **Step 2: Execute tools in-process**
-
-Where the server starts an assistant turn, build the dispatcher with a direct executor:
-
-```ts
-const dispatcher = createDispatcher({
-  allowedNames: TOOL_NAMES,
-  // No renderer here: the server holds the same normalised data itself.
-  execute: async (name: string, args: Record<string, unknown>) =>
-    runTool(name, args, { data, history }),
-})
-```
-
-- [ ] **Step 3: Verify the server build**
-
-Run: `npm run build:server`
-Expected: PASS.
-
-- [ ] **Step 4: Run the gate**
-
-Run: `npm run check`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add server/index.ts
-git commit -m "feat(assistant): run the same tools on the hosted server"
-```
-
----
-
-## Task 14: Documentation
+## Task 13: Documentation
 
 **Files:**
 - Modify: `docs/ARCHITECTURE.md`
@@ -2350,7 +2582,7 @@ git commit -m "docs(assistant): describe the provider contract and tool layer"
 
 ## Manual verification checklist
 
-Tests cannot reach the model's behaviour. After Task 14, run through this by hand in demo mode and against a real account:
+Tests cannot reach the model's behaviour. After Task 13, run through this by hand in demo mode and against a real account:
 
 - [ ] Ask something with no data behind it ("how was my HRV in 2019"). The answer must say the data is absent, not produce a number.
 - [ ] Ask a question with an ambiguous period ("was last month better"). The assistant should either state the range it used or ask.

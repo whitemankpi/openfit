@@ -9,3 +9,6 @@ screenshots/
 .DS_Store
 *.tsbuildinfo
 .agents/*.local.md
+
+# Subagent-driven development scratch (ledger, briefs, review packages)
+.superpowers/
