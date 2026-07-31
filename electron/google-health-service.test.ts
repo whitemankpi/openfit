@@ -394,6 +394,46 @@ describe('Google Health adapter', () => {
     })).toBe('Wahoo Fitness · Magene')
   })
 
+  it('names an unmapped application instead of collapsing it into the platform', () => {
+    expect(__test.activitySourceLabel({
+      platform: 'HEALTH_CONNECT',
+      application: { packageName: 'com.example.trailrunner' },
+    })).toBe('Trailrunner')
+    // Nothing usable to derive a name from: the platform is still better than
+    // an empty label.
+    expect(__test.activitySourceLabel({ platform: 'HEALTH_CONNECT', application: { packageName: 'com.a.b' } }))
+      .toBe('Health Connect')
+    expect(__test.activitySourceLabel({ platform: 'FITBIT' })).toBe('Fitbit')
+  })
+
+  it('keeps a workout its own source label when the interval cannot be parsed', () => {
+    const endpoints = __test.translateGoogleHealth({
+      activitiesRaw: { dataPoints: [{
+        dataSource: { platform: 'FITBIT' },
+        exercise: { exerciseType: 'WALKING', displayName: 'Walk', activeDuration: '3540s' },
+      }] },
+      activitySourcesRaw: { dataPoints: [] },
+    }, '2026-06-22')
+
+    expect(endpoints.activities.activities[0].sources).toEqual(['Fitbit'])
+  })
+
+  it('does not match workouts that merely overlap with a different exercise', () => {
+    const interval = { startTime: '2026-06-22T07:00:00Z', endTime: '2026-06-22T08:00:00Z' }
+    const endpoints = __test.translateGoogleHealth({
+      activitiesRaw: { dataPoints: [{
+        dataSource: { platform: 'FITBIT' },
+        exercise: { interval, exerciseType: 'WALKING', displayName: 'Walk', activeDuration: '3600s' },
+      }] },
+      activitySourcesRaw: { dataPoints: [{
+        dataSource: { platform: 'HEALTH_CONNECT', application: { packageName: 'com.kingsmith.xiaojin' } },
+        exercise: { interval, exerciseType: 'STRENGTH_TRAINING', displayName: 'Strength' },
+      }] },
+    }, '2026-06-22')
+
+    expect(endpoints.activities.activities[0].sources).toEqual(['Fitbit'])
+  })
+
   describe('sleep efficiency', () => {
     const night = (summary: Record<string, unknown>, interval?: Record<string, unknown>) => __test.translateGoogleHealth({
       sleepRaw: { dataPoints: [{ dataPointName: 'sleep-1', sleep: {

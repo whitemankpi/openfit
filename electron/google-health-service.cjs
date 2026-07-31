@@ -554,12 +554,21 @@ function numeric(value, transform = (number) => number) {
 
 const APPLICATION_LABELS = [
   [/kingsmith|xiaojin/i, 'WalkingPad'],
-  [/wahoofitness|wahoo/i, 'Wahoo Fitness'],
+  [/wahoo/i, 'Wahoo Fitness'],
   [/whoop/i, 'WHOOP'],
   [/magene/i, 'Magene'],
   [/fitbit/i, 'Fitbit'],
   [/google\.android\.apps\.fitness/i, 'Google Fit'],
 ]
+
+// Unknown packages would otherwise collapse into the platform name and the
+// source would look like every other Health Connect entry, so fall back to the
+// package's own last segment rather than adding every app to the table above.
+function packageFallbackLabel(identity) {
+  const segment = identity.split('.').at(-1)
+  if (!segment || segment.length < 3 || !/^[a-z0-9]+$/i.test(segment)) return null
+  return segment.charAt(0).toUpperCase() + segment.slice(1)
+}
 
 function deviceSourceLabel(device) {
   const displayName = String(device?.displayName || device?.model || '').trim()
@@ -572,7 +581,8 @@ function deviceSourceLabel(device) {
 
 function applicationSourceLabel(application) {
   const identity = String(application?.packageName || application?.bundleId || '').trim()
-  return APPLICATION_LABELS.find(([pattern]) => pattern.test(identity))?.[1] || null
+  if (!identity) return null
+  return APPLICATION_LABELS.find(([pattern]) => pattern.test(identity))?.[1] || packageFallbackLabel(identity)
 }
 
 function activitySourceLabel(dataSource) {
@@ -601,16 +611,17 @@ function exerciseInterval(point) {
 
 function matchingActivitySources(activityPoint, rawPoints) {
   const activity = exerciseInterval(activityPoint)
-  if (!Number.isFinite(activity.start)) return []
-  const matches = rawPoints.filter((point) => {
+  // Without a usable start there is nothing to match against, but the workout
+  // still knows its own source.
+  const matches = !Number.isFinite(activity.start) ? [] : rawPoints.filter((point) => {
     const candidate = exerciseInterval(point)
     if (!Number.isFinite(candidate.start)) return false
-    const startDelta = Math.abs(activity.start - candidate.start)
     const overlaps = Number.isFinite(activity.end) && Number.isFinite(candidate.end)
       && Math.min(activity.end, candidate.end) > Math.max(activity.start, candidate.start)
+    const nearStart = Math.abs(activity.start - candidate.start) <= 2 * 60_000
     const sameType = activity.type && candidate.type && activity.type === candidate.type
     const sameName = activity.name && candidate.name && activity.name === candidate.name
-    return (overlaps && (sameType || sameName)) || (startDelta <= 2 * 60_000 && (sameType || sameName))
+    return (overlaps || nearStart) && (sameType || sameName)
   })
 
   const labels = [
