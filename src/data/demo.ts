@@ -1,4 +1,5 @@
-import type { ActivityItem, DashboardData, SleepStage, SleepStageKey, SleepStageSegment, TimePoint, TrendPoint } from '../types'
+import type { ActivityItem, DashboardData, HeartZoneMinutes, SleepStage, SleepStageKey, SleepStageSegment, TimePoint, TrendPoint } from '../types'
+import type { History, HistoryDay } from './history'
 
 const dayMs = 86_400_000
 
@@ -26,18 +27,31 @@ function midSleepMinutes(startIso: string, endIso: string): number {
   return Math.round(folded)
 }
 
+// A full year of history is generated on every demo render, so this must stay O(days).
+const TREND_DAYS = 365
+
 function makeTrends(selectedDate: string): TrendPoint[] {
   const end = dateFromIso(selectedDate)
   const formatter = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
-  return Array.from({ length: 14 }, (_, index) => {
-    const date = new Date(end.getTime() - (13 - index) * dayMs)
+  return Array.from({ length: TREND_DAYS }, (_, index) => {
+    const date = new Date(end.getTime() - (TREND_DAYS - 1 - index) * dayMs)
+    const weekday = date.getDay() // 0 = Sunday .. 6 = Saturday
+    const isWeekend = weekday === 0 || weekday === 6
+    // One full sine cycle across the year, for a gentle seasonal drift on
+    // weight/resting heart rate rather than pure day-to-day noise.
+    const seasonalPhase = (index / TREND_DAYS) * Math.PI * 2
     const activityWave = Math.sin(index * 0.9) * 1_350
-    const steps = Math.round(7_200 + activityWave + seeded(index, 2) * 3_100)
+    const weekendAdjustment = isWeekend ? -1_200 : 300
+    const steps = Math.round(7_200 + activityWave + weekendAdjustment + seeded(index, 2) * 3_100)
     const sleepMinutes = Math.round(390 + seeded(index, 4) * 85)
     const activeMinutes = Math.round(38 + seeded(index, 5) * 48)
     const sleepDeepMinutes = Math.round(sleepMinutes * (0.19 + seeded(index, 21) * 0.04))
     const sleepRemMinutes = Math.round(sleepMinutes * (0.21 + seeded(index, 22) * 0.05))
     const sleepLightMinutes = Math.max(0, sleepMinutes - sleepDeepMinutes - sleepRemMinutes)
+    const heartRateMin = Math.round(46 + seeded(index, 30) * 10)
+    const heartRateMax = Math.round(140 + seeded(index, 31) * 40)
+    const heartRateAvg = Math.round(68 + seeded(index, 32) * 12)
+    const sleepingHeartRate = Math.max(heartRateMin, Math.min(heartRateAvg, Math.round(50 + seeded(index, 33) * 10)))
     return {
       date: localIso(date),
       label: formatter.format(date).replace('.', ''),
@@ -48,7 +62,11 @@ function makeTrends(selectedDate: string): TrendPoint[] {
       activeMinutes,
       zoneMinutes: Math.round(activeMinutes * (0.72 + seeded(index, 10) * 0.45)),
       sedentaryMinutes: Math.round(480 + seeded(index, 11) * 130),
-      restingHeartRate: Math.round(59 + seeded(index, 6) * 7),
+      restingHeartRate: Math.round(60 + Math.sin(seasonalPhase) * 2 + seeded(index, 6) * 6),
+      heartRateAvg,
+      heartRateMin,
+      heartRateMax,
+      sleepingHeartRate,
       hrvMs: Math.round(42 + seeded(index, 12) * 14),
       breathingRate: Number((14.1 + seeded(index, 13) * 1.5).toFixed(1)),
       spo2: Number((96.2 + seeded(index, 14) * 1.6).toFixed(1)),
@@ -64,8 +82,8 @@ function makeTrends(selectedDate: string): TrendPoint[] {
       sleepAwakeMinutes: Math.round(20 + seeded(index, 23) * 30),
       sleepLatencyMinutes: Math.round(5 + seeded(index, 24) * 15),
       sleepMidTime: Math.round(170 + seeded(index, 25) * 60),
-      weight: Number((72.8 - index * 0.045 + seeded(index, 3) * 0.28).toFixed(1)),
-      bodyFat: Number((16.9 - index * 0.012 + seeded(index, 18) * 0.4).toFixed(1)),
+      weight: Number((72.5 + Math.sin(seasonalPhase) * 0.6 + seeded(index, 3) * 0.28).toFixed(1)),
+      bodyFat: Number((16.7 + Math.sin(seasonalPhase) * 0.3 + seeded(index, 18) * 0.4).toFixed(1)),
       waterMl: Math.round(1_650 + seeded(index, 19) * 850),
       caloriesIn: Math.round(1_720 + seeded(index, 20) * 520),
     }
@@ -83,6 +101,47 @@ function makeHeartSeries(): TimePoint[] {
       value: Math.round(base + Math.sin(index * 0.7) * 5 + Math.max(0, training)),
     }
   })
+}
+
+/**
+ * Synthetic minute-series for one archived history day. Only called for the
+ * days that actually get intraday data (see `createDemoHistory`), so it stays
+ * off the hot path for the other ~335 days of a year of history.
+ */
+function makeHeartSeriesForDay(dayIndex: number, trend: TrendPoint): TimePoint[] {
+  const pointCount = 48 + Math.round(seeded(dayIndex, 40) * 48) // 48-96 points/day
+  const minutesPerPoint = 1_440 / pointCount
+  const min = trend.heartRateMin ?? 50
+  const max = trend.heartRateMax ?? 160
+  const avg = trend.heartRateAvg ?? 72
+  return Array.from({ length: pointCount }, (_, index) => {
+    const minuteOfDay = Math.round(index * minutesPerPoint)
+    const hours = Math.floor(minuteOfDay / 60)
+    const minutes = minuteOfDay % 60
+    const hourFrac = hours + minutes / 60
+    const base = hourFrac < 7 ? min + (avg - min) * 0.3 : hourFrac < 17 ? avg + (max - avg) * 0.15 : avg
+    const training = hourFrac >= 18 && hourFrac <= 19.5
+      ? (max - avg) * Math.max(0, Math.sin(((hourFrac - 18) / 1.5) * Math.PI))
+      : 0
+    const noise = (seeded(dayIndex * 97 + index, 41) - 0.5) * 8
+    const value = Math.round(Math.min(max, Math.max(min, base + training + noise)))
+    return { time: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`, value }
+  })
+}
+
+/**
+ * Plausible heart-zone minute counts for one archived history day, scaled up
+ * on days whose intraday max was higher (harder-effort days).
+ */
+function makeZoneMinutesForDay(dayIndex: number, trend: TrendPoint): HeartZoneMinutes {
+  const max = trend.heartRateMax ?? 160
+  const intensity = Math.min(1, Math.max(0, (max - 140) / 40))
+  return {
+    light: Math.round(30 + intensity * 20 + seeded(dayIndex, 42) * 15),
+    moderate: Math.round(10 + intensity * 15 + seeded(dayIndex, 43) * 10),
+    vigorous: Math.round(5 + intensity * 20 + seeded(dayIndex, 44) * 10),
+    peak: Math.round(intensity * 10 + seeded(dayIndex, 45) * 5),
+  }
 }
 
 function makeStepsSeries(): TimePoint[] {
@@ -311,6 +370,33 @@ export function createDemoData(selectedDate = localIso()): DashboardData {
       rateLimitRemaining: 126,
     },
   }
+}
+
+// Real archives only carry intraday for days that were actually synced; the
+// demo mirrors that by only generating intraday for the most recent window.
+const HISTORY_INTRADAY_DAYS = 30
+
+export function createDemoHistory(selectedDate = localIso()): History {
+  const trends = makeTrends(selectedDate)
+  const total = trends.length
+  let maxHeartRate: number | null = null
+
+  const days: HistoryDay[] = trends.map((trend, index) => {
+    const hasIntraday = index >= total - HISTORY_INTRADAY_DAYS
+    const heartIntraday = hasIntraday ? makeHeartSeriesForDay(index, trend) : null
+    const heartZoneMinutes = hasIntraday ? makeZoneMinutesForDay(index, trend) : null
+    if (trend.heartRateMax !== null && (maxHeartRate === null || trend.heartRateMax > maxHeartRate)) {
+      maxHeartRate = trend.heartRateMax
+    }
+    return {
+      date: trend.date,
+      trend,
+      heartIntraday,
+      heartZoneMinutes,
+    }
+  })
+
+  return { days, maxHeartRate }
 }
 
 export { localIso }

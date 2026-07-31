@@ -30,8 +30,9 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId } from '@/types'
-import { createDemoData, localIso } from '@/data/demo'
+import type { DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId, RawHealthArchive } from '@/types'
+import { createDemoData, createDemoHistory, localIso } from '@/data/demo'
+import { availableDays, buildHistory, mergeTrendWindow, type RangeDays } from '@/data/history'
 import { normalizeFitbitData } from '@/data/normalize'
 import { formatDate, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -124,6 +125,8 @@ export default function App() {
   const [connecting, setConnecting] = useState(false)
   const [syncProgress, setSyncProgress] = useState<SyncProgressState | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
+  const [archive, setArchive] = useState<RawHealthArchive | null>(null)
+  const [rangeDays, setRangeDays] = useState<RangeDays>(30)
   const selectedDateRef = useRef(selectedDate)
   const dataDateRef = useRef(data.selectedDate)
   const syncingRef = useRef(false)
@@ -143,8 +146,20 @@ export default function App() {
     dataDateRef.current = data.selectedDate
   }, [data.selectedDate])
 
+  // Trends are read from the encrypted per-day archive rather than the trailing
+  // window inside a single payload, so the range selector can reach past it.
+  const refreshArchive = useCallback(async () => {
+    if (!window.fitbit) return
+    try {
+      setArchive(await window.fitbit.getCachedArchive())
+    } catch (error) {
+      console.warn('Unable to read the local health archive.', error)
+    }
+  }, [])
+
   const loadNativeState = useCallback(async () => {
     if (!window.fitbit) return
+    void refreshArchive()
     try {
       const [nextStatus, cached] = await Promise.all([window.fitbit.getStatus(), window.fitbit.getCachedData()])
       setStatus(nextStatus)
@@ -160,7 +175,7 @@ export default function App() {
     } catch (error) {
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to read the local status.' })
     }
-  }, [])
+  }, [refreshArchive])
 
   const runSync = useCallback(async (requestedDate?: string) => {
     if (!window.fitbit) {
@@ -227,8 +242,9 @@ export default function App() {
       setSyncing(false)
       setSyncTargetDate(null)
       setSyncProgress(null)
+      void refreshArchive()
     }
-  }, [])
+  }, [refreshArchive])
 
   useEffect(() => {
     const requestedDate = selectedDateRef.current
@@ -266,8 +282,9 @@ export default function App() {
         const nextStatus = await bridge.getStatus()
         setStatus(nextStatus)
         if (event.date !== selectedDateRef.current || syncingRef.current) return
-        const archive = await bridge.getCachedArchive()
-        const cached = archive.days[event.date]
+        const nextArchive = await bridge.getCachedArchive()
+        setArchive(nextArchive)
+        const cached = nextArchive.days[event.date]
         if (!cached) return
         const normalized = normalizeFitbitData(cached)
         dataDateRef.current = normalized.selectedDate
@@ -372,15 +389,35 @@ export default function App() {
     if (!result.canceled) setToast({ tone: 'success', message: 'JSON archive exported.' })
   }
 
+  // Normalising every archived day is not cheap at a year of history, so it is
+  // recomputed only when the archive itself changes.
+  const history = useMemo(
+    () => data.source === 'demo' ? createDemoHistory(data.selectedDate) : buildHistory(archive),
+    [archive, data.source, data.selectedDate],
+  )
+  const historyDays = availableDays(history, data.selectedDate)
+  const rangedData = useMemo(
+    () => ({ ...data, trends: mergeTrendWindow(history, data.trends, data.selectedDate, rangeDays) }),
+    [data, history, rangeDays],
+  )
+
   const currentView = useMemo(() => {
-    const props = { data, status, navigate: setPage }
+    const props = {
+      data: rangedData,
+      status,
+      navigate: setPage,
+      history,
+      rangeDays,
+      onRangeChange: setRangeDays,
+      historyDays,
+    }
     if (page === 'activity') return <ActivityView {...props} />
     if (page === 'health') return <HealthView {...props} />
     if (page === 'sleep') return <SleepView {...props} />
     if (page === 'body') return <BodyView {...props} />
     if (page === 'devices') return <DevicesView {...props} />
     return <TodayView {...props} />
-  }, [data, page, status])
+  }, [history, historyDays, page, rangeDays, rangedData, status])
 
   const isToday = selectedDate === localIso()
   const sourceLabel = status.connected

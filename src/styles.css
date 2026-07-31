@@ -1019,6 +1019,23 @@ input:focus-visible,
 .column-chart { position: relative; width: 100%; overflow: hidden; }
 .line-chart svg,
 .column-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.history-import-copy { max-width: 620px; margin: 10px 0 0; color: var(--color-fog); font-size: 13px; line-height: 1.5; }
+.history-import-actions,
+.history-import-progress { display: flex; flex-wrap: wrap; align-items: center; margin-top: 14px; gap: 8px; }
+.history-import-progress span { color: var(--color-fog); font-size: 13px; }
+.history-import-progress strong { color: var(--color-mist); font-size: 13px; font-family: var(--font-mono); }
+.history-import-actions button,
+.history-import-progress button { padding: 6px 12px; border: 1px solid var(--border); border-radius: calc(var(--radius) - 4px); background: transparent; color: var(--color-mist); font-size: 13px; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+.history-import-actions button:hover,
+.history-import-progress button:hover { border-color: var(--category-device); background: color-mix(in srgb, var(--category-device) 12%, transparent); }
+.history-import-progress button { margin-left: auto; }
+.history-import-outcome { margin: 12px 0 0; color: var(--color-slate); font-size: 13px; }
+.range-selector { display: inline-flex; padding: 2px; gap: 2px; border-radius: calc(var(--radius) - 2px); background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.range-option { padding: 4px 10px; border: 0; border-radius: calc(var(--radius) - 4px); background: transparent; color: var(--color-slate); font-size: 13px; font-family: var(--font-mono); cursor: pointer; transition: background 120ms ease, color 120ms ease; }
+.range-option:hover:not(:disabled) { color: var(--color-mist); }
+.range-option.is-selected { background: var(--card); color: var(--foreground); }
+.range-option:disabled { opacity: 0.38; cursor: not-allowed; }
+.range-option:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .stacked-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
 .stacked-chart-legend span { display: inline-flex; align-items: center; gap: 6px; color: var(--color-fog); font-size: 13px; }
 .stacked-chart-legend .legend-dot { width: 7px; height: 7px; border-radius: 50%; }
@@ -1037,6 +1054,12 @@ input:focus-visible,
 .column-chart.is-compact .chart-gridline,
 .column-chart.is-compact .chart-tick,
 .column-chart.is-compact .chart-label { display: none; }
+
+.heatmap-chart { position: relative; width: 100%; overflow: hidden; }
+.heatmap-chart svg { display: block; width: 100%; overflow: visible; }
+.heatmap-axis-label { fill: var(--color-slate); font-family: var(--font-mono); font-size: 11px; }
+.heatmap-legend { display: flex; align-items: center; gap: 4px; margin-top: 8px; color: var(--color-fog); font-family: var(--font-mono); font-size: 12px; }
+.heatmap-legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
 
 .bullet-chart { display: flex; width: 100%; flex-direction: column; gap: 7px; }
 .bullet-track { position: relative; height: 7px; border-radius: 999px; background: var(--color-graphite); }
@@ -1999,6 +2022,12 @@ input:focus-visible,
 .chart-column-mark:focus-visible { filter: brightness(1.2); outline: none; }
 .chart-column-mark:focus-visible { stroke: var(--foreground); stroke-width: 2px; }
 .chart-hover-guide { stroke: var(--muted-foreground); stroke-width: 1; stroke-dasharray: 3 5; opacity: 0.55; }
+
+.heatmap-chart { overflow: visible; }
+.heatmap-cell { transition: opacity 150ms ease, filter 150ms ease; cursor: crosshair; stroke: var(--color-graphite); stroke-width: 1; }
+.heatmap-cell:hover,
+.heatmap-cell:focus-visible { filter: brightness(1.3); outline: none; }
+.heatmap-cell:focus-visible { stroke: var(--foreground); stroke-width: 2px; }
 
 .chart-tooltip {
   position: absolute;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-const { cachedDay, latestDay, normalizeArchive, sameDayContent, storeDay } = require('./health-cache.cjs')
+const { cachedDay, latestDay, markAttempted, normalizeArchive, sameDayContent, storeDay } = require('./health-cache.cjs')
 
 const payload = (date: string) => ({ source: 'google-health', date, generatedAt: `${date}T12:00:00Z`, endpoints: {}, errors: [], rateLimit: {} })
 
@@ -8,6 +8,30 @@ describe('health history cache', () => {
   it('migrates the previous single-day cache', () => {
     const oldCache = payload('2026-06-21')
     expect(normalizeArchive(oldCache)).toMatchObject({ version: 2, lastDate: '2026-06-21', days: { '2026-06-21': oldCache } })
+  })
+
+  it('remembers days the provider had nothing for', () => {
+    const archive = markAttempted(markAttempted(null, '2026-06-19'), '2026-06-18')
+
+    expect(archive.attempted).toEqual(['2026-06-18', '2026-06-19'])
+    // Asking twice must not grow the list.
+    expect(markAttempted(archive, '2026-06-18').attempted).toEqual(['2026-06-18', '2026-06-19'])
+  })
+
+  it('stops treating a day as attempted once it finally arrives', () => {
+    const archive = storeDay(markAttempted(null, '2026-06-21'), payload('2026-06-21'))
+
+    expect(archive.attempted).toEqual([])
+    expect(cachedDay(archive, '2026-06-21')?.date).toBe('2026-06-21')
+    // A day already present is never recorded as a failed attempt.
+    expect(markAttempted(archive, '2026-06-21').attempted).toEqual([])
+  })
+
+  it('preserves attempted days across a reload', () => {
+    const stored = JSON.parse(JSON.stringify(markAttempted(null, '2026-06-17')))
+
+    expect(normalizeArchive(stored).attempted).toEqual(['2026-06-17'])
+    expect(normalizeArchive({ version: 2, days: {}, attempted: ['x', 5, 'x'] }).attempted).toEqual(['x'])
   })
 
   it('keeps every stored day and returns each one independently', () => {

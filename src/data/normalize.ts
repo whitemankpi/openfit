@@ -1,3 +1,4 @@
+import { averageHeartRate, sleepingHeartRate } from '../lib/heart-zones'
 import { createDemoData } from './demo'
 import type {
   ActivityItem,
@@ -202,6 +203,7 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
   const heartSummary = asArray(asObject(e.heartIntraday)['activities-heart'])[0]?.value ?? {}
   const rawHeartPoints = readIntraday(e.heartIntraday, 'activities-heart-intraday')
   const heartPoints = compactIntraday(rawHeartPoints)
+  const heartValues = rawHeartPoints.map((point) => point.value)
   const sleepRecord = mainSleep(e.sleep)
   const sleepGoal = asObject(asObject(e.sleepGoal).goal)
   const latestWeight = asArray(asObject(e.bodyWeight).weight).at(-1) ?? null
@@ -268,6 +270,9 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
   ])
   const trends: TrendPoint[] = [...allDates].sort().map((date) => {
     const metric = asObject(metricTrend.get(date))
+    // Intraday is fetched for the synced day only, so the aggregates it feeds
+    // stay unavailable on the surrounding days of the same payload.
+    const isSyncedDay = date === payload.date
     return {
       date,
       label: shortDay(date),
@@ -279,6 +284,12 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
       zoneMinutes: numeric(metric.zoneMinutes),
       sedentaryMinutes: numeric(metric.sedentaryMinutes),
       restingHeartRate: heartTrend.get(date) ?? null,
+      heartRateAvg: isSyncedDay ? averageHeartRate(heartPoints) : null,
+      heartRateMin: isSyncedDay && heartValues.length ? Math.min(...heartValues) : null,
+      heartRateMax: isSyncedDay && heartValues.length ? Math.max(...heartValues) : null,
+      sleepingHeartRate: isSyncedDay
+        ? sleepingHeartRate(heartPoints, sleepRecord?.startTime ?? null, sleepRecord?.endTime ?? null)
+        : null,
       hrvMs: numeric(metric.hrvMs),
       breathingRate: numeric(metric.breathingRate),
       spo2: numeric(metric.spo2),
@@ -308,7 +319,6 @@ export function normalizeFitbitData(payload: RawFitbitPayload): DashboardData {
     ? activeMinuteParts.reduce<number>((sum, value) => sum + (value ?? 0), 0)
     : null
   const currentHeartRate = rawHeartPoints.at(-1)?.value ?? null
-  const heartValues = rawHeartPoints.map((point) => point.value)
   const zoneMinutes = asObject(activity?.activeZoneMinutes).totalMinutes ?? activity?.activeZoneMinutes
   const cardioValue = asObject(cardio?.value)
   const vo2Max = cardioValue.vo2Max ? String(cardioValue.vo2Max) : null

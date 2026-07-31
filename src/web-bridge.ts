@@ -65,6 +65,10 @@ const bridge: FitbitBridge = {
   },
   getCachedData: () => request('/api/cache'),
   getCachedArchive: () => request('/api/archive'),
+  backfillHistory: (days) => request('/api/backfill', { method: 'POST', body: JSON.stringify({ days }) }),
+  // The hosted server runs the import to completion in one request, so there is
+  // no window in which a cancellation could take effect.
+  cancelBackfill: async () => ({ canceled: false }),
   exportData: async () => {
     const response = await fetch('/api/export')
     if (!response.ok) {
@@ -88,6 +92,9 @@ const bridge: FitbitBridge = {
     syncListeners.add(callback)
     return () => syncListeners.delete(callback)
   },
+  // Per-day progress is not streamed by the hosted server; the SSE
+  // `data-updated` events already tell the client when a day lands.
+  onBackfillProgress: () => () => undefined,
   onDataUpdated: (callback) => {
     dataListeners.add(callback)
     ensureDataEvents()

@@ -2,6 +2,7 @@ import type { KeyboardEvent, ReactNode } from 'react'
 import { Card, CardAction, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { formatNumber } from '@/lib/format'
+import { RANGE_OPTIONS, type RangeDays } from '@/data/history'
 import type { AppIcon } from './icons'
 import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, MinusIcon } from './icons'
 import { BulletChart } from './Charts'
@@ -137,4 +138,38 @@ export function Delta({ value, suffix = ' vs. previous period' }: { value: numbe
 
 export function EmptyValue({ children = 'Not available for this device or day.' }: { children?: ReactNode }) {
   return <div className="empty-value">{children}</div>
+}
+
+const RANGE_LABELS: Record<RangeDays, string> = { 7: '7d', 30: '30d', 90: '90d', 365: '1y' }
+
+/**
+ * Ranges the archive cannot cover stay visible but disabled, so the interface
+ * says how much history exists instead of silently offering an empty chart.
+ */
+export function RangeSelector({ value, onChange, historyDays, className }: {
+  value: RangeDays
+  onChange: (days: RangeDays) => void
+  historyDays: number
+  className?: string
+}) {
+  return (
+    <div className={cn('range-selector', className)} role="group" aria-label="History range">
+      {RANGE_OPTIONS.map((days) => {
+        const covered = historyDays >= days
+        return (
+          <button
+            key={days}
+            type="button"
+            className={cn('range-option', value === days && 'is-selected')}
+            aria-pressed={value === days}
+            disabled={!covered && value !== days}
+            title={covered ? undefined : `Only ${historyDays} ${historyDays === 1 ? 'day' : 'days'} of history so far`}
+            onClick={() => onChange(days)}
+          >
+            {RANGE_LABELS[days]}
+          </button>
+        )
+      })}
+    </div>
+  )
 }

@@ -32,6 +32,7 @@ let oauthTimeout = null
 let credentialFile = null
 let cacheFile = null
 let syncInFlight = null
+let backfillCanceled = false
 let codexService = null
 let assistantRequestId = null
 
@@ -310,6 +311,61 @@ async function syncData(date) {
   return payload
 }
 
+const BACKFILL_MAX_DAYS = 365
+
+function shiftIsoDate(date, days) {
+  const [year, month, day] = date.split('-').map(Number)
+  const parsed = new Date(year, month - 1, day + days, 12)
+  return localIsoDate(parsed)
+}
+
+/**
+ * Walks backwards from yesterday filling days the archive never stored.
+ *
+ * Newest first, because recent history is what the dashboard shows. Today is
+ * skipped: it is still changing and the regular sync owns it. Days the provider
+ * has nothing for are recorded so a second run does not spend the rate limit
+ * asking again.
+ */
+async function backfillHistory(requestedDays, onProgress) {
+  const days = Math.min(Math.max(Math.trunc(Number(requestedDays) || 0), 1), BACKFILL_MAX_DAYS)
+  const today = localIsoDate()
+  const archive = healthCache.normalizeArchive(readSecure(cacheFile, null))
+  const attempted = new Set(archive.attempted)
+
+  const pending = []
+  for (let offset = 1; offset <= days; offset += 1) {
+    const date = shiftIsoDate(today, -offset)
+    if (!archive.days[date] && !attempted.has(date)) pending.push(date)
+  }
+
+  const result = { requested: pending.length, imported: 0, empty: 0, failed: 0, canceled: false }
+  for (const [index, date] of pending.entries()) {
+    if (backfillCanceled) {
+      result.canceled = true
+      break
+    }
+    onProgress({ date, completed: index, total: pending.length })
+    try {
+      await syncData(date)
+      result.imported += 1
+    } catch (error) {
+      // A day with no data and a day that failed to load are different
+      // outcomes: only the former is worth remembering as settled.
+      const noData = error instanceof Error && error.message.includes('did not return enough valid sources')
+      if (noData) {
+        writeSecure(cacheFile, healthCache.markAttempted(readSecure(cacheFile, null), date))
+        result.empty += 1
+      } else {
+        result.failed += 1
+        console.warn(`Backfill of ${date} failed.`, error)
+      }
+    }
+  }
+  onProgress({ date: null, completed: pending.length, total: pending.length })
+  return result
+}
+
 function developmentUrl() {
   if (app.isPackaged || !process.env.VITE_DEV_SERVER_URL) return null
   try {
@@ -468,6 +524,24 @@ function registerIpc() {
     } finally {
       syncInFlight = null
     }
+  })
+  trustedHandle('fitbit:backfill-history', async (days) => {
+    if (syncInFlight) throw new Error('A sync is already in progress.')
+    backfillCanceled = false
+    const run = backfillHistory(days, (progress) => {
+      mainWindow?.webContents.send('fitbit:backfill-progress', progress)
+    })
+    syncInFlight = run
+    try {
+      return await run
+    } finally {
+      syncInFlight = null
+      backfillCanceled = false
+    }
+  })
+  trustedHandle('fitbit:cancel-backfill', () => {
+    backfillCanceled = true
+    return { canceled: true }
   })
   trustedHandle('fitbit:export-data', async () => {
     const cached = healthCache.normalizeArchive(readSecure(cacheFile, null))

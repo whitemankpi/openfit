@@ -34,7 +34,9 @@ const syncIntervalMs = 5 * 60_000
 const schedulerStateFile = 'sync-scheduler.json'
 
 type SyncResult = { payload: any; changed: boolean }
+type BackfillResult = { requested: number; imported: number; empty: number; failed: number; canceled: boolean }
 let syncInFlight: Promise<SyncResult> | null = null
+let backfillInFlight: Promise<void> | null = null
 let oauth: { state: string; verifier: string; createdAt: number; purpose: 'health' | 'google-fit' } | null = null
 let oauthResult: { sequence: number; ok: boolean; error?: string } = { sequence: 0, ok: false }
 const eventClients = new Set<ServerResponse>()
@@ -192,8 +194,55 @@ async function runExclusiveSync(date: string, force: boolean, reason: string): P
   }
 }
 
+const BACKFILL_MAX_DAYS = 365
+
+/**
+ * Fills days the archive never stored, newest first. Today belongs to the
+ * five-minute scheduler, so the walk starts at yesterday. Days the provider has
+ * nothing for are recorded and not asked for again.
+ */
+async function runBackfill(requestedDays: number): Promise<BackfillResult> {
+  if (syncInFlight || backfillInFlight) throw new Error('A sync is already in progress.')
+  const days = Math.min(Math.max(Math.trunc(requestedDays) || 0, 1), BACKFILL_MAX_DAYS)
+  const today = localIsoDate()
+  const archive = healthCache.normalizeArchive(store.read('health-cache.json', null))
+  const attempted = new Set<string>(archive.attempted)
+
+  const pending: string[] = []
+  for (let offset = 1; offset <= days; offset += 1) {
+    const date = shiftIsoDate(today, -offset)
+    if (!archive.days[date] && !attempted.has(date)) pending.push(date)
+  }
+
+  const result: BackfillResult = { requested: pending.length, imported: 0, empty: 0, failed: 0, canceled: false }
+  backfillInFlight = (async () => {
+    for (const date of pending) {
+      try {
+        const outcome = await syncData(date)
+        if (outcome.changed) broadcastDataUpdate(date, outcome.payload.generatedAt || null, 'backfill')
+        result.imported += 1
+      } catch (error) {
+        const noData = error instanceof Error && error.message.includes('did not return enough valid sources')
+        if (noData) {
+          store.write('health-cache.json', healthCache.markAttempted(store.read('health-cache.json', null), date))
+          result.empty += 1
+        } else {
+          result.failed += 1
+          console.warn(`Backfill of ${date} failed.`, error)
+        }
+      }
+    }
+  })()
+  try {
+    await backfillInFlight
+  } finally {
+    backfillInFlight = null
+  }
+  return result
+}
+
 async function runScheduledSync(): Promise<void> {
-  if (syncInFlight || !publicStatus().connected) return
+  if (syncInFlight || backfillInFlight || !publicStatus().connected) return
   const today = localIsoDate()
   const yesterday = shiftIsoDate(today, -1)
   const schedulerState = store.read<SyncSchedulerState>(schedulerStateFile, {})
@@ -320,6 +369,11 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
     const date = String((await body(request)).date || '')
     if (!validSyncDate(date)) throw new Error('Invalid sync date.')
     return json(response, 200, await runExclusiveSync(date, false, 'manual')), true
+  }
+  if (request.method === 'POST' && url.pathname === '/api/backfill') {
+    const days = Number((await body(request)).days)
+    if (!Number.isFinite(days) || days < 1) throw new Error('Invalid backfill range.')
+    return json(response, 200, await runBackfill(days)), true
   }
   if (request.method === 'POST' && url.pathname === '/api/google-fit/audit') {
     const date = String((await body(request)).date || localIsoDate())

@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import type { ActivityItem, DashboardData, FitbitAuthStatus, PageId, TimePoint } from '@/types'
-import { BulletChart, ColumnChart, LineChart, RadialProgress, SleepStageBar, SleepStageTimeline, StackedColumnChart } from './Charts'
-import { DuoIcon, EmptyValue, MetricTile, Panel, PanelHeader } from './Shared'
+import type { ActivityItem, BackfillProgress, DashboardData, FitbitAuthStatus, PageId, TimePoint } from '@/types'
+import { BulletChart, ColumnChart, Heatmap, LineChart, RadialProgress, SleepStageBar, SleepStageTimeline, StackedColumnChart } from './Charts'
+import { DuoIcon, EmptyValue, MetricTile, Panel, PanelHeader, RangeSelector } from './Shared'
+import type { History, RangeDays } from '@/data/history'
 import type { AppIcon } from './icons'
 import {
   ActiveIcon,
@@ -48,6 +49,12 @@ interface ViewProps {
   data: DashboardData
   status: FitbitAuthStatus
   navigate: (page: PageId) => void
+  /** Full local archive series, for views that need per-day intraday detail. */
+  history: History
+  rangeDays: RangeDays
+  onRangeChange: (days: RangeDays) => void
+  /** Days of history the archive can cover, used to gate the range options. */
+  historyDays: number
 }
 
 interface Signal {
@@ -558,7 +565,7 @@ export function TodayView({ data, navigate }: ViewProps) {
 
 type ActivityHistoryMetric = 'steps' | 'activeMinutes' | 'distanceKm' | 'calories'
 
-export function ActivityView({ data }: ViewProps) {
+export function ActivityView({ data, rangeDays, onRangeChange, historyDays }: ViewProps) {
   const [historyMetric, setHistoryMetric] = useState<ActivityHistoryMetric>('steps')
   const stepsByHour = hourlyBuckets(data.activity.stepsIntraday)
   const history = {
@@ -636,7 +643,7 @@ export function ActivityView({ data }: ViewProps) {
 
       {hasActivityTrends && (
         <section>
-          <SectionTitle title="More activity trends" copy="Additional daily series returned by Google Health." />
+          <SectionTitle title="More activity trends" copy="Additional daily series returned by Google Health." action={<RangeSelector value={rangeDays} onChange={onRangeChange} historyDays={historyDays} />} />
           <div className="metric-trend-grid">
             <MetricTrendPanel data={data} category="activity" icon={GaugeIcon} title="Zone minutes" values={data.trends.map((point) => point.zoneMinutes)} formatter={(value) => `${formatNumber(value)} min`} />
             <MetricTrendPanel data={data} category="activity" icon={DurationIcon} title="Sedentary time" values={data.trends.map((point) => point.sedentaryMinutes)} formatter={(value) => formatMinutes(value)} />
@@ -658,7 +665,27 @@ export function ActivityView({ data }: ViewProps) {
   )
 }
 
-export function HealthView({ data }: ViewProps) {
+export function HealthView({ data, history, rangeDays, onRangeChange, historyDays }: ViewProps) {
+  const heartHeatmapDays = history.days.filter((day) => day.heartIntraday !== null).length
+  // One cell per day-hour, averaging the minutes that fall inside it. Hours the
+  // device did not record simply have no cell and stay transparent.
+  const heartHeatmapCells = history.days.flatMap((day) => {
+    if (!day.heartIntraday) return []
+    const hours = new Map<number, { total: number; count: number }>()
+    for (const point of day.heartIntraday) {
+      const hour = Number(point.time.slice(0, 2))
+      if (!Number.isFinite(hour)) continue
+      const bucket = hours.get(hour) ?? { total: 0, count: 0 }
+      bucket.total += point.value
+      bucket.count += 1
+      hours.set(hour, bucket)
+    }
+    return [...hours.entries()].map(([hour, bucket]) => ({
+      date: day.date,
+      hour,
+      value: Math.round(bucket.total / bucket.count),
+    }))
+  })
   const heartValues = data.health.heartRateIntraday.map((point) => point.value)
   const heartLabels = data.health.heartRateIntraday.map((point) => point.time)
   const restingValues = data.trends.map((point) => point.restingHeartRate)
@@ -728,9 +755,27 @@ export function HealthView({ data }: ViewProps) {
         )}
       </div>
 
+      {heartHeatmapCells.length > 0 && (
+        <section>
+          <SectionTitle
+            title="Heart rate by hour"
+            copy={`${heartHeatmapDays} days with intraday detail. Shading is relative to your own range, not a fixed scale.`}
+          />
+          <Panel className="chart-panel" category="heart">
+            <Heatmap
+              cells={heartHeatmapCells}
+              layout="dayHour"
+              color="var(--category-heart)"
+              formatter={(value) => `${Math.round(value)} bpm`}
+              ariaLabel="Average heart rate by day and hour"
+            />
+          </Panel>
+        </section>
+      )}
+
       {hasPhysiologyTrends && (
         <section>
-          <SectionTitle title="Physiological trends" copy="Compare measurements with your personal trends, not generic thresholds." />
+          <SectionTitle title="Physiological trends" copy="Compare measurements with your personal trends, not generic thresholds." action={<RangeSelector value={rangeDays} onChange={onRangeChange} historyDays={historyDays} />} />
           <div className="metric-trend-grid">
             <MetricTrendPanel data={data} category="heart" icon={SignalIcon} title="HRV" values={data.trends.map((point) => point.hrvMs)} formatter={(value) => `${formatDecimal(value)} ms`} />
             <MetricTrendPanel data={data} category="heart" icon={CloudIcon} title="Average SpO₂" values={data.trends.map((point) => point.spo2)} formatter={(value) => `${formatDecimal(value)}%`} />
@@ -757,7 +802,7 @@ export function HealthView({ data }: ViewProps) {
   )
 }
 
-export function SleepView({ data }: ViewProps) {
+export function SleepView({ data, rangeDays, onRangeChange, historyDays }: ViewProps) {
   const sleepValues = data.trends.map((point) => point.sleepMinutes)
   const sleepCount = sleepValues.filter(hasValue).length
   const efficiencyValues = data.trends.map((point) => point.sleepEfficiency)
@@ -840,7 +885,7 @@ export function SleepView({ data }: ViewProps) {
 
       {(sleepCount > 1 || efficiencyCount > 1 || stageNightsCount > 1) && (
         <section>
-          <SectionTitle title="Sleep trends" copy="Duration and efficiency of recorded nights." />
+          <SectionTitle title="Sleep trends" copy="Duration and efficiency of recorded nights." action={<RangeSelector value={rangeDays} onChange={onRangeChange} historyDays={historyDays} />} />
           <div className="chart-grid sleep-history-grid">
             {sleepCount > 1 && (
               <Panel className="chart-panel sleep-trend-panel" category="sleep">
@@ -873,7 +918,7 @@ function BodyMetric({ label, value, unit, icon: Icon, note }: { label: string; v
   )
 }
 
-export function BodyView({ data }: ViewProps) {
+export function BodyView({ data, rangeDays, onRangeChange, historyDays }: ViewProps) {
   const weightValues = data.trends.map((point) => point.weight)
   const weightCount = weightValues.filter(hasValue).length
   const hasComposition = hasValue(data.body.bmi) || hasValue(data.body.bodyFat)
@@ -935,7 +980,7 @@ export function BodyView({ data }: ViewProps) {
       </div>
       {hasBodyTrends && (
         <section>
-          <SectionTitle title="Body and log trends" copy="Only measurements recorded during the synced period." />
+          <SectionTitle title="Body and log trends" copy="Only measurements recorded during the synced period." action={<RangeSelector value={rangeDays} onChange={onRangeChange} historyDays={historyDays} />} />
           <div className="metric-trend-grid">
             <MetricTrendPanel data={data} category="body" icon={SignalIcon} title="Body fat" values={data.trends.map((point) => point.bodyFat)} formatter={(value) => `${formatDecimal(value)}%`} />
             <MetricTrendPanel data={data} category="body" icon={WaterIcon} title="Hydration" values={data.trends.map((point) => point.waterMl)} formatter={(value) => `${formatNumber(value)} ml`} />
@@ -958,7 +1003,69 @@ function CoverageRow({ icon: Icon, label, items }: { icon: AppIcon; label: strin
   )
 }
 
-export function DevicesView({ data, status }: ViewProps) {
+/**
+ * Importing history means one provider round trip per missing day, so it is
+ * always explicit: never triggered by opening a page or by the scheduler.
+ */
+function HistoryImport({ historyDays }: { historyDays: number }) {
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<BackfillProgress | null>(null)
+  const [outcome, setOutcome] = useState<string | null>(null)
+
+  useEffect(() => window.fitbit?.onBackfillProgress(setProgress), [])
+
+  const start = async (days: number) => {
+    if (!window.fitbit || running) return
+    setRunning(true)
+    setOutcome(null)
+    try {
+      const result = await window.fitbit.backfillHistory(days)
+      setOutcome(result.requested === 0
+        ? 'Nothing left to import for this range.'
+        : `Imported ${result.imported} of ${result.requested} days.`
+          + (result.empty ? ` ${result.empty} had no data.` : '')
+          + (result.failed ? ` ${result.failed} failed.` : '')
+          + (result.canceled ? ' Stopped early.' : ''))
+    } catch (error) {
+      setOutcome(error instanceof Error ? error.message : 'Import failed.')
+    } finally {
+      setRunning(false)
+      setProgress(null)
+    }
+  }
+
+  return (
+    <Panel className="history-import" category="device">
+      <PanelHeader
+        eyebrow={`${historyDays} ${historyDays === 1 ? 'day' : 'days'} stored locally`}
+        title="Import history"
+        icon={CloudIcon}
+      />
+      <p className="history-import-copy">
+        Fetches days missing from the local archive, one request per day and newest first.
+        A longer range takes proportionally longer. Days the provider has no data for are not asked for again.
+      </p>
+      {running ? (
+        <div className="history-import-progress">
+          <span>{progress?.date ? `Importing ${formatDate(progress.date, { day: 'numeric', month: 'short' })}…` : 'Preparing…'}</span>
+          {progress && progress.total > 0 && <strong>{progress.completed} / {progress.total}</strong>}
+          <button type="button" onClick={() => window.fitbit?.cancelBackfill()}>Stop</button>
+        </div>
+      ) : (
+        <div className="history-import-actions">
+          {[30, 90, 365].map((days) => (
+            <button key={days} type="button" onClick={() => void start(days)}>
+              {days === 365 ? 'Last year' : `Last ${days} days`}
+            </button>
+          ))}
+        </div>
+      )}
+      {outcome && <p className="history-import-outcome">{outcome}</p>}
+    </Panel>
+  )
+}
+
+export function DevicesView({ data, status, historyDays }: ViewProps) {
   const stepsSourceLabel = data.activity.stepsSource === 'google-fit'
     ? 'Google Fit'
     : data.activity.stepsSource === 'google-fit+health'
@@ -1045,6 +1152,8 @@ export function DevicesView({ data, status }: ViewProps) {
           </div>
         </Panel>
       </div>
+
+      {!isDemo && status.connected && <HistoryImport historyDays={historyDays} />}
 
       {data.sync.errors.length > 0 && <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{data.sync.errors.length} sources returned no data for the selected period. Available measurements remain visible.</p></div>}
       {!isDemo && status.provider === 'google-health' && (

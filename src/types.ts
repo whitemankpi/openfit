@@ -20,6 +20,14 @@ export interface TrendPoint {
   zoneMinutes: number | null
   sedentaryMinutes: number | null
   restingHeartRate: number | null
+  /**
+   * Intraday-derived aggregates. Only the day a payload was synced for carries
+   * them; other days in the same payload's window have daily rollups only.
+   */
+  heartRateAvg: number | null
+  heartRateMin: number | null
+  heartRateMax: number | null
+  sleepingHeartRate: number | null
   hrvMs: number | null
   breathingRate: number | null
   spo2: number | null
@@ -224,6 +232,8 @@ export interface RawHealthArchive {
   version: number
   lastDate: string | null
   days: Record<string, RawFitbitPayload>
+  /** Days a backfill asked for and the provider had nothing to give. */
+  attempted?: string[]
 }
 
 export interface FitbitAuthStatus {
@@ -246,6 +256,22 @@ export interface FitbitConfigInput {
   redirectUri: string
 }
 
+export interface BackfillProgress {
+  /** The day being imported, or null once the run has finished. */
+  date: string | null
+  completed: number
+  total: number
+}
+
+export interface BackfillResult {
+  requested: number
+  imported: number
+  /** Days the provider had no data for; they are not retried. */
+  empty: number
+  failed: number
+  canceled: boolean
+}
+
 export interface FitbitBridge {
   getStatus: () => Promise<FitbitAuthStatus>
   saveConfig: (config: FitbitConfigInput) => Promise<FitbitAuthStatus>
@@ -255,10 +281,13 @@ export interface FitbitBridge {
   sync: (date: string) => Promise<RawFitbitPayload>
   getCachedData: () => Promise<RawFitbitPayload | null>
   getCachedArchive: () => Promise<RawHealthArchive>
+  backfillHistory: (days: number) => Promise<BackfillResult>
+  cancelBackfill: () => Promise<{ canceled: boolean }>
   exportData: () => Promise<{ canceled: boolean; path?: string }>
   openExternal: (url: string) => Promise<void>
   onAuthComplete: (callback: (result: { ok: boolean; error?: string }) => void) => () => void
   onSyncProgress: (callback: (progress: { completed: number; total: number; key: string; date?: string }) => void) => () => void
+  onBackfillProgress: (callback: (progress: BackfillProgress) => void) => () => void
   onDataUpdated: (callback: (event: { date: string; generatedAt?: string | null; reason?: string }) => void) => () => void
 }
 

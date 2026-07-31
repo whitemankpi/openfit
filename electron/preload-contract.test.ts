@@ -51,10 +51,13 @@ describe('preload bridge contract', () => {
       'sync',
       'getCachedData',
       'getCachedArchive',
+      'backfillHistory',
+      'cancelBackfill',
       'exportData',
       'openExternal',
       'onAuthComplete',
       'onSyncProgress',
+      'onBackfillProgress',
       'onDataUpdated',
     ]))
 
@@ -66,6 +69,8 @@ describe('preload bridge contract', () => {
     expect(fitbit?.sync('2026-06-22')).toMatchObject({ channel: 'fitbit:sync', args: ['2026-06-22'] })
     expect(fitbit?.getCachedData()).toMatchObject({ channel: 'fitbit:get-cached-data' })
     expect(fitbit?.getCachedArchive()).toMatchObject({ channel: 'fitbit:get-cached-archive' })
+    expect(fitbit?.backfillHistory(90)).toMatchObject({ channel: 'fitbit:backfill-history', args: [90] })
+    expect(fitbit?.cancelBackfill()).toMatchObject({ channel: 'fitbit:cancel-backfill' })
     expect(fitbit?.exportData()).toMatchObject({ channel: 'fitbit:export-data' })
     expect(fitbit?.openExternal('https://example.test')).toMatchObject({ channel: 'fitbit:open-external', args: ['https://example.test'] })
 
@@ -95,7 +100,7 @@ describe('preload bridge contract', () => {
     expect(handleDataUpdated).toHaveBeenCalledWith({ date: '2026-06-22', reason: 'manual' })
     unsubscribeDataUpdated()
     expect(removeListener).toHaveBeenCalledWith('fitbit:data-updated', dataUpdatedListener)
-    expect(invoke).toHaveBeenCalledTimes(10)
+    expect(invoke).toHaveBeenCalledTimes(12)
   })
 
   it('exposes the expected health assistant bridge methods and IPC channels', () => {
