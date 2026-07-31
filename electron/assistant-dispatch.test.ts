@@ -99,4 +99,27 @@ describe('assistant dispatcher', () => {
     expect(second.ok).toBe(true)
     expect(instance.callCount).toBe(1)
   })
+
+  it('spends budget on refused calls, so a model cannot retry an unknown name forever', async () => {
+    const execute = vi.fn(async () => ({ n: 1 }))
+    const instance = dispatcher({ execute, maxCalls: 2 })
+
+    await instance.call('nope', {})
+    await instance.call('also_nope', {})
+    const third = await instance.call('metric_window', {})
+
+    expect(third.ok).toBe(false)
+    expect(third.error).toContain('limit')
+    expect(execute).not.toHaveBeenCalled()
+    expect(instance.callCount).toBe(2)
+  })
+
+  it('turns a synchronous throw from the executor into an error, not a rejection', async () => {
+    const result = await dispatcher({
+      execute: () => { throw new Error('renderer exploded before returning a promise') },
+    }).call('metric_window', {})
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toBeTruthy()
+  })
 })

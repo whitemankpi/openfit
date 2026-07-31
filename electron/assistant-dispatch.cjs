@@ -30,14 +30,13 @@ function createDispatcher({
     if (callCount >= maxCalls) {
       return { ok: false, error: `Tool call limit of ${maxCalls} reached for this turn. Answer with what you already have.` }
     }
+    callCount += 1
     if (!allowed.has(name)) {
       return { ok: false, error: `Unknown tool "${String(name)}". Available: ${[...allowed].join(', ')}.` }
     }
     if (!isPlainObject(args)) {
       return { ok: false, error: 'Tool arguments must be a JSON object.' }
     }
-
-    callCount += 1
     let timer = null
     try {
       const result = await Promise.race([
