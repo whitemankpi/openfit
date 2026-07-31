@@ -47,4 +47,16 @@ describe('metric_window', () => {
     expect(METRIC_KEYS).toContain('steps')
     expect(METRIC_KEYS).toContain('restingHeartRate')
   })
+
+  it('refuses inherited object keys rather than crashing on them', () => {
+    for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      const result = runTool('metric_window', {
+        metric: name,
+        start: '2026-06-01',
+        end: '2026-06-30',
+      }, context()) as { error?: string }
+
+      expect(result.error).toContain(name)
+    }
+  })
 })

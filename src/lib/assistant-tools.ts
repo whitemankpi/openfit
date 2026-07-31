@@ -58,7 +58,7 @@ function toolError(message: string) {
 
 function readMetric(args: Record<string, unknown>) {
   const metric = String(args.metric ?? '')
-  if (!METRICS[metric]) return { error: `Unknown metric "${metric}". Available: ${METRIC_KEYS.join(', ')}.` }
+  if (!Object.prototype.hasOwnProperty.call(METRICS, metric)) return { error: `Unknown metric "${metric}". Available: ${METRIC_KEYS.join(', ')}.` }
   return { metric }
 }
 
@@ -71,7 +71,8 @@ function readRange(args: Record<string, unknown>, startKey = 'start', endKey = '
 }
 
 function seriesFor(context: ToolContext, metric: string, start: string, end: string) {
-  const select = METRICS[metric]
+  if (!Object.prototype.hasOwnProperty.call(METRICS, metric)) return []
+  const select = METRICS[metric]!
   return context.history.days
     .filter((day) => day.date >= start && day.date <= end)
     .map((day) => ({ date: day.date, value: select(day.trend) }))
