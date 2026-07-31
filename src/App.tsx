@@ -30,7 +30,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId, RawHealthArchive } from '@/types'
+import type { AssistantConfig, AssistantProvider, DashboardData, FitbitAuthStatus, FitbitConfigInput, HealthProvider, PageId, RawHealthArchive } from '@/types'
 import { createDemoData, createDemoHistory, localIso } from '@/data/demo'
 import { availableDays, buildHistory, mergeTrendWindow, type RangeDays } from '@/data/history'
 import { normalizeFitbitData } from '@/data/normalize'
@@ -128,6 +128,8 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [archive, setArchive] = useState<RawHealthArchive | null>(null)
   const [rangeDays, setRangeDays] = useState<RangeDays>(30)
+  const [assistantConfig, setAssistantConfig] = useState<AssistantConfig>({ provider: 'codex', hasApiKey: false })
+  const [deepSeekKey, setDeepSeekKey] = useState('')
   const selectedDateRef = useRef(selectedDate)
   const dataDateRef = useRef(data.selectedDate)
   const syncingRef = useRef(false)
@@ -175,6 +177,13 @@ export default function App() {
       }
     } catch (error) {
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to read the local status.' })
+    }
+    if (window.healthAssistant) {
+      try {
+        setAssistantConfig(await window.healthAssistant.getConfig())
+      } catch (error) {
+        console.warn('Unable to read the assistant configuration.', error)
+      }
     }
   }, [refreshArchive])
 
@@ -369,6 +378,17 @@ export default function App() {
     } catch (error) {
       setConnecting(false)
       setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Invalid configuration.' })
+    }
+  }
+
+  const saveAssistantConfig = async (input: { provider: AssistantProvider; apiKey?: string }) => {
+    if (!window.healthAssistant) return
+    try {
+      const saved = await window.healthAssistant.saveConfig(input)
+      setAssistantConfig(saved)
+      setDeepSeekKey('')
+    } catch (error) {
+      setToast({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to save the assistant configuration.' })
     }
   }
 
@@ -589,6 +609,11 @@ export default function App() {
         onConnectGoogleFit={connectGoogleFit}
         onExport={exportData}
         onDisconnect={disconnect}
+        assistantConfig={assistantConfig}
+        onAssistantConfigChange={setAssistantConfig}
+        deepSeekKey={deepSeekKey}
+        onDeepSeekKeyChange={setDeepSeekKey}
+        onSaveAssistantConfig={saveAssistantConfig}
       />
 
       {toast && (
@@ -741,6 +766,11 @@ function SettingsDialog({
   onConnectGoogleFit,
   onExport,
   onDisconnect,
+  assistantConfig,
+  onAssistantConfigChange,
+  deepSeekKey,
+  onDeepSeekKeyChange,
+  onSaveAssistantConfig,
 }: {
   open: boolean
   status: FitbitAuthStatus
@@ -751,6 +781,11 @@ function SettingsDialog({
   onConnectGoogleFit: () => Promise<void>
   onExport: () => Promise<void>
   onDisconnect: () => Promise<void>
+  assistantConfig: AssistantConfig
+  onAssistantConfigChange: (updater: (current: AssistantConfig) => AssistantConfig) => void
+  deepSeekKey: string
+  onDeepSeekKeyChange: (value: string) => void
+  onSaveAssistantConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<void>
 }) {
   const [clientId, setClientId] = useState(status.clientId)
   const [clientSecret, setClientSecret] = useState('')
@@ -783,6 +818,10 @@ function SettingsDialog({
       clientId: clientId.trim(),
       clientSecret: clientSecret.trim() || undefined,
       redirectUri: redirectUri.trim(),
+    })
+    void onSaveAssistantConfig({
+      provider: assistantConfig.provider,
+      ...(deepSeekKey.trim() ? { apiKey: deepSeekKey.trim() } : {}),
     })
   }
 
@@ -851,6 +890,40 @@ function SettingsDialog({
 
             <button type="button" className="portal-link" onClick={openDeveloperPortal}>Open developer console <ExternalIcon /></button>
             <div className="scope-note"><ShieldIcon /><p>Read-only permissions for activity, heart, sleep, and authorized measurements.</p></div>
+
+            <div className="settings-section">
+              <Label>Assistant model</Label>
+              <div className="range-selector" role="group" aria-label="Assistant model">
+                {(['codex', 'deepseek'] as AssistantProvider[]).map((assistantProvider) => (
+                  <button
+                    key={assistantProvider}
+                    type="button"
+                    className={cn('range-option', assistantConfig.provider === assistantProvider && 'is-selected')}
+                    aria-pressed={assistantConfig.provider === assistantProvider}
+                    onClick={() => onAssistantConfigChange((current) => ({ ...current, provider: assistantProvider }))}
+                  >
+                    {assistantProvider === 'codex' ? 'Codex' : 'DeepSeek'}
+                  </button>
+                ))}
+              </div>
+              {assistantConfig.provider === 'deepseek' && (
+                <div className="form-field">
+                  <Label htmlFor="deepseek-key">DeepSeek API key</Label>
+                  <Input
+                    id="deepseek-key"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={assistantConfig.hasApiKey ? 'Stored — leave blank to keep' : 'sk-…'}
+                    value={deepSeekKey}
+                    onChange={(event) => onDeepSeekKeyChange(event.target.value)}
+                  />
+                </div>
+              )}
+              <p className="settings-note">
+                Both options send the conversation to a remote model, so health data leaves this machine while you chat.
+                Nothing is sent until you send a message.
+              </p>
+            </div>
 
             <DialogFooter className="settings-footer">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

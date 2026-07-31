@@ -738,6 +738,10 @@ input:focus-visible,
 .scope-note svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--color-fog); }
 .scope-note p { margin: 0; color: var(--color-fog); font-size: 13px; line-height: 1.5; }
 .settings-footer { margin: 4px -24px -24px !important; padding: 14px 24px !important; border-color: var(--color-graphite) !important; background: var(--color-charcoal) !important; }
+.settings-section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--color-graphite); }
+.settings-section > [data-slot="label"] { color: var(--color-fog); font-size: 13px; }
+.settings-section .range-selector { align-self: flex-start; }
+.settings-note { margin: 10px 0 0; color: var(--color-slate); font-size: 13px; line-height: 1.5; }
 
 @media (max-width: 1080px) {
   .sidebar { width: 170px; }
