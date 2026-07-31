@@ -316,9 +316,18 @@ function toolError(message: string) {
   return { error: message }
 }
 
+/**
+ * Own-property lookup only. The metric name arrives from a model that has read
+ * user-supplied text, and a plain bracket lookup would let an inherited key
+ * like `hasOwnProperty` past the allowlist and then throw when called.
+ */
+function metricAccessor(metric: string) {
+  return Object.prototype.hasOwnProperty.call(METRICS, metric) ? METRICS[metric] : null
+}
+
 function readMetric(args: Record<string, unknown>) {
   const metric = String(args.metric ?? '')
-  if (!METRICS[metric]) return { error: `Unknown metric "${metric}". Available: ${METRIC_KEYS.join(', ')}.` }
+  if (!metricAccessor(metric)) return { error: `Unknown metric "${metric}". Available: ${METRIC_KEYS.join(', ')}.` }
   return { metric }
 }
 
@@ -331,7 +340,8 @@ function readRange(args: Record<string, unknown>, startKey = 'start', endKey = '
 }
 
 function seriesFor(context: ToolContext, metric: string, start: string, end: string) {
-  const select = METRICS[metric]
+  const select = metricAccessor(metric)
+  if (!select) return []
   return context.history.days
     .filter((day) => day.date >= start && day.date <= end)
     .map((day) => ({ date: day.date, value: select(day.trend) }))
@@ -549,7 +559,7 @@ const dataCoverage: ToolDefinition = {
     const days = context.history.days.filter((day) => day.date >= range.start && day.date <= range.end)
     const metrics = METRIC_KEYS.map((metric) => ({
       metric,
-      n: finite(days.map((day) => METRICS[metric](day.trend))).length,
+      n: finite(days.map((day) => METRICS[metric](day.trend))).length, // metric comes from METRIC_KEYS, so it is always own
     }))
     return {
       start: range.start,
@@ -1158,9 +1168,9 @@ const correlate: ToolDefinition = {
     const pairs: Array<[number, number]> = []
     for (const day of context.history.days) {
       if (day.date < range.start || day.date > range.end) continue
-      const left = METRICS[first.metric](day.trend)
+      const left = (metricAccessor(first.metric) as (point: TrendPoint) => number | null)(day.trend)
       const partner = byDate.get(shiftIso(day.date, lagDays))
-      const right = partner ? METRICS[second.metric](partner) : null
+      const right = partner ? (metricAccessor(second.metric) as (point: TrendPoint) => number | null)(partner) : null
       if (left !== null && right !== null && Number.isFinite(left) && Number.isFinite(right)) {
         pairs.push([left, right])
       }
