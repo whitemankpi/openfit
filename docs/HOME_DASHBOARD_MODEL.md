@@ -7,12 +7,13 @@ The home screen is not a metric catalog. It should answer four questions, in ord
 3. **Which data explains the picture?**
 4. **Where can I find detail without losing context?**
 
-OpenFit does not generate a proprietary composite score. Every summary must trace back to a measurement, an explicit goal, or a visible personal baseline.
+OpenFit does not reproduce Google's or Fitbit's proprietary composite scores (Readiness, Cardio Load, Sleep Score, Stress Score). It does compute its own Recovery, Load, and Sleep quality scores locally, from measurements the device did return; every one of them traces back to documented factors, weights, and personal baselines, never to an opaque number. See [docs/SCORES.md](SCORES.md). Beyond those three scores, every other summary on this screen must trace back to a measurement, an explicit goal, or a visible personal baseline.
 
 ## Metric Hierarchy
 
 | Role | Metrics | Reason |
 |---|---|---|
+| Scores | Recovery, Load, Sleep quality | locally-computed composites the wearer's day is judged against first; withheld until enough baseline exists |
 | Hero | steps versus goal, sleep duration versus goal, resting heart rate versus personal average | understandable, comparable, and continuously available |
 | Diagnostics | hourly step distribution, 14-day steps / sleep / RHR trends, sleep stages, recent activities | explain when and why the value moved |
 | Personal signals | HRV, SpO2, respiration, and skin temperature | meaningful mostly against the same user's baseline |

@@ -2362,6 +2362,9 @@ input:focus-visible,
 }
 
 .sleep-overview-lead { margin: 0 0 8px; }
+/* "efficiency" does not fit the small ring at the default label size and was
+   being cut to "efficien…". */
+.sleep-overview-lead .radial-progress small { max-width: 62px; font-size: 11px; }
 .sleep-overview-duration strong { font-size: 34px; }
 .sleep-overview-duration small { margin-top: 6px; color: var(--muted-foreground); }
 .home-sleep-overview .sleep-stage-wrap { margin-top: 8px; }
@@ -3185,4 +3188,91 @@ input:focus-visible,
   .sleep-timeline-card { padding-inline: 14px; }
   .sleep-timeline-label,
   .sleep-timeline-time { font-size: 11px; }
+}
+
+/* "Time by stage" now sources its own legend/caption from time-asleep-relative
+   percentages (deepPercent/remPercent/lightPercent), so the stock caption that
+   SleepStageBar renders against the recorded-period total is suppressed here. */
+
+/* OpenFit's own recovery / load / sleep-quality scores, at the top of Today. */
+.scores-standalone { gap: 0; }
+.score-section-note {
+  margin: -2px 0 2px;
+  padding-inline: 2px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.score-building-note { padding: 16px 18px; }
+.score-building-note p { margin: 0; color: var(--muted-foreground); font-size: 13px; line-height: 1.55; }
+
+/* Expanding one card must not stretch its neighbours into tall empty boxes. */
+.score-card-grid { display: grid; align-items: start; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--home-widget-gap, 18px); }
+
+.score-card { padding: 0; overflow: hidden; }
+.score-card-trigger {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  padding: 18px 20px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.score-card-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.score-card-trigger .panel-header { margin-bottom: 4px; }
+.score-card-chevron { width: 14px; height: 14px; margin-top: 6px; color: var(--muted-foreground); transition: transform 150ms ease; }
+.score-card-chevron.is-flipped { transform: rotate(180deg); }
+
+.score-card-lead { display: flex; align-items: center; gap: 14px; padding-top: 6px; }
+.score-card-lead .radial-progress strong { font-size: 22px; }
+.score-card-status { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 5px; }
+.score-card-status strong { overflow: hidden; color: var(--foreground); font-size: 14px; font-weight: 500; line-height: 1.35; text-overflow: ellipsis; }
+.score-card-provisional {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.score-card-building { display: flex; min-height: 84px; flex-direction: column; justify-content: center; gap: 4px; padding-top: 6px; }
+.score-card-building strong { color: var(--foreground); font-size: 15px; font-weight: 500; }
+.score-card-building span { color: var(--muted-foreground); font-family: var(--font-mono); font-size: 13px; }
+
+.score-card-expansion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 20px 18px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+  padding-top: 14px;
+}
+
+.score-contribution { display: flex; flex-direction: column; gap: 6px; }
+.score-contribution-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.score-contribution-label { min-width: 0; overflow: hidden; color: var(--foreground); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.score-contribution-figures { display: flex; flex: 0 0 auto; gap: 10px; color: var(--muted-foreground); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+.score-contribution-z { color: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground)); }
+.score-contribution-points { color: var(--foreground); }
+.score-contribution-track { position: relative; height: 6px; border-radius: 999px; background: var(--muted); }
+.score-contribution-fill { position: absolute; inset: 0 auto 0 0; min-width: 2px; border-radius: inherit; }
+
+.score-missing-note { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 1180px) {
+  .score-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .score-card-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 480px) {
+  .score-card-trigger { padding: 16px; }
+  .score-card-expansion { padding: 4px 16px 16px; padding-top: 14px; }
 }

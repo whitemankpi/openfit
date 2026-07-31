@@ -46,6 +46,46 @@ function percentChange(current: number | null, baseline: number | null) {
   return (current - baseline) / baseline * 100
 }
 
+function median(values: number[]) {
+  if (!values.length) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+/** Scales the median absolute deviation to be comparable with a standard deviation. */
+const MAD_TO_SIGMA = 1.4826
+
+export interface RobustBaseline {
+  center: number | null
+  /** Spread in units comparable with a standard deviation; null when degenerate. */
+  spread: number | null
+  sampleCount: number
+}
+
+/**
+ * Median and MAD rather than mean and standard deviation: one feverish night or
+ * a missed strap should not move the baseline every other day is judged against.
+ */
+export function robustBaseline(values: Array<number | null | undefined>): RobustBaseline {
+  const observed = finite(values)
+  const center = median(observed)
+  if (center === null) return { center: null, spread: null, sampleCount: 0 }
+  const deviation = median(observed.map((value) => Math.abs(value - center)))
+  const spread = deviation === null || deviation === 0 ? null : deviation * MAD_TO_SIGMA
+  return { center, spread, sampleCount: observed.length }
+}
+
+/**
+ * How far today sits from the personal baseline, in spread units. Clamped
+ * because a single extreme reading should saturate rather than dominate.
+ */
+export function robustZScore(current: number | null, baseline: RobustBaseline, limit = 3): number | null {
+  if (current === null || baseline.center === null || !baseline.spread) return null
+  const z = (current - baseline.center) / baseline.spread
+  return Math.max(-limit, Math.min(limit, z))
+}
+
 export function compareWithPersonalBaseline(
   data: DashboardData,
   current: number | null,

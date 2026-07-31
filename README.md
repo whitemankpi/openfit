@@ -4,7 +4,7 @@
 
 <h1 align="center">OpenFit</h1>
 
-OpenFit is a private, desktop-first Electron dashboard for Google Fitbit Air and other Fitbit devices. Its adaptive interface prioritizes a small set of useful insights and only displays views, metrics, and navigation when Google Health returns real data.
+OpenFit is a private, desktop-first Electron dashboard for Google Fitbit Air and other Fitbit devices. Its adaptive interface prioritizes a small set of useful insights and only displays views, metrics, and navigation when Google Health returns real data. It also computes its own Recovery, Load, and Sleep quality scores locally from those measurements, with the formula documented in [docs/SCORES.md](docs/SCORES.md).
 
 <p align="center">
   <img src="public/openfit-screenshot.webp" alt="OpenFit desktop dashboard screenshot" width="960">

@@ -14,6 +14,7 @@ import {
   BreathingIcon,
   CaloriesIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   CloudIcon,
   DeviceIcon,
@@ -41,9 +42,12 @@ import {
   formatTime,
   relativeTime,
 } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { availableMetricCount, hasActivityData, hasBodyData, hasHealthData, hasSleepData } from '@/lib/data-availability'
 import { analyzeHome } from '@/lib/home-analysis'
 import type { BaselineComparison } from '@/lib/home-analysis'
+import { MINIMUM_BASELINE_DAYS, SETTLED_BASELINE_DAYS, scoreSeries } from '@/lib/scores'
+import type { ScoreContribution, ScoreKey, ScoreResult, ScoreStatus, Scores } from '@/lib/scores'
 
 interface ViewProps {
   data: DashboardData
@@ -55,6 +59,8 @@ interface ViewProps {
   onRangeChange: (days: RangeDays) => void
   /** Days of history the archive can cover, used to gate the range options. */
   historyDays: number
+  /** OpenFit's own local recovery/load/sleep-quality derivations. */
+  scores: Scores
 }
 
 interface Signal {
@@ -365,7 +371,133 @@ function VitalSnapshot({
   )
 }
 
-export function TodayView({ data, navigate }: ViewProps) {
+const SCORE_META: Record<ScoreKey, { title: string; category: HomeCategory; icon: AppIcon }> = {
+  recovery: { title: 'Recovery', category: 'recovery', icon: GaugeIcon },
+  load: { title: 'Load', category: 'activity', icon: ActivityIcon },
+  sleepQuality: { title: 'Sleep quality', category: 'sleep', icon: SleepIcon },
+}
+
+const SCORE_ORDER: ScoreKey[] = ['recovery', 'load', 'sleepQuality']
+
+function scoreStatusCopy(status: ScoreStatus) {
+  if (status === 'low') return 'Lower'
+  if (status === 'high') return 'Higher'
+  return 'Typical'
+}
+
+function scoreStatusSentence(status: ScoreStatus) {
+  if (status === 'low') return 'Lower than usual for you'
+  if (status === 'high') return 'Higher than usual for you'
+  return 'Typical for you'
+}
+
+/** e.g. +1.2σ / −0.4σ; null when the factor has no personal baseline to deviate from. */
+function formatZScore(z: number | null) {
+  if (z === null) return null
+  const rounded = (Math.round(Math.abs(z) * 10) / 10).toFixed(1)
+  return `${z < 0 ? '−' : '+'}${rounded}σ`
+}
+
+function ScoreContributionRow({ contribution, color }: { contribution: ScoreContribution; color: string }) {
+  const ceiling = Math.max(contribution.weight * 100, Math.abs(contribution.points), 1)
+  const fillPercent = Math.min(100, Math.max(0, (contribution.points / ceiling) * 100))
+  const z = formatZScore(contribution.z)
+  return (
+    <div className="score-contribution">
+      <div className="score-contribution-row">
+        <span className="score-contribution-label">{contribution.label}</span>
+        <span className="score-contribution-figures">
+          {z && <span className="score-contribution-z">{z}</span>}
+          <span>{Math.round(contribution.weight * 100)}% weight</span>
+          <span className="score-contribution-points">{contribution.points} pt{Math.abs(contribution.points) === 1 ? '' : 's'}</span>
+        </span>
+      </div>
+      <div className="score-contribution-track">
+        <span className="score-contribution-fill" style={{ width: `${fillPercent}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
+
+function ScoreCard({ result, expanded, onToggle }: { result: ScoreResult; expanded: boolean; onToggle: () => void }) {
+  const meta = SCORE_META[result.key]
+  const color = trendColors[meta.category]
+  const contentId = `score-expansion-${result.key}`
+  return (
+    <Panel className={cn('score-card', expanded && 'is-expanded')} category={meta.category}>
+      <button type="button" className="score-card-trigger" aria-expanded={expanded} aria-controls={contentId} onClick={onToggle}>
+        <PanelHeader
+          title={meta.title}
+          icon={meta.icon}
+          action={<ChevronDownIcon className={cn('score-card-chevron', expanded && 'is-flipped')} aria-hidden="true" />}
+        />
+        {result.confidence === 'insufficient' ? (
+          <div className="score-card-building">
+            <strong>Building baseline</strong>
+            <span>{result.baselineDays}/{SETTLED_BASELINE_DAYS} days</span>
+          </div>
+        ) : (
+          <div className="score-card-lead">
+            <RadialProgress value={result.value} color={color} label={scoreStatusCopy(result.status)} valueLabel={String(result.value)} size={84} />
+            <div className="score-card-status">
+              <strong>{scoreStatusSentence(result.status)}</strong>
+              {result.confidence === 'building' && (
+                <span className="score-card-provisional">Provisional · {result.baselineDays}/{SETTLED_BASELINE_DAYS} days of baseline</span>
+              )}
+            </div>
+          </div>
+        )}
+      </button>
+      {expanded && (
+        <div id={contentId} className="score-card-expansion">
+          {result.contributions.map((contribution) => (
+            <ScoreContributionRow key={contribution.key} contribution={contribution} color={color} />
+          ))}
+          {result.missing.length > 0 && (
+            <p className="score-missing-note">
+              Not counted — {result.missing.join(', ')}: not reported by your device today, so their weight moved to the remaining factors.
+            </p>
+          )}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function ScoresSection({ scores }: { scores: Scores }) {
+  const [expandedKey, setExpandedKey] = useState<ScoreKey | null>(null)
+  const allInsufficient = SCORE_ORDER.every((key) => scores[key].confidence === 'insufficient')
+  const maxBaselineDays = Math.max(...SCORE_ORDER.map((key) => scores[key].baselineDays))
+
+  return (
+    <HomeSection id="scores" title="Today's scores">
+      <p className="score-section-note">
+        OpenFit's own local derivations from your measurements — not a Google or Fitbit score. Expand a card to see the formula behind the number.
+      </p>
+      {allInsufficient ? (
+        <Panel className="score-building-note" category="recovery">
+          <p>
+            Still building your personal baseline. Recovery, load, and sleep quality need at least {MINIMUM_BASELINE_DAYS} days of history
+            — {maxBaselineDays}/{MINIMUM_BASELINE_DAYS} so far.
+          </p>
+        </Panel>
+      ) : (
+        <div className="score-card-grid">
+          {SCORE_ORDER.map((key) => (
+            <ScoreCard
+              key={key}
+              result={scores[key]}
+              expanded={expandedKey === key}
+              onToggle={() => setExpandedKey((current) => current === key ? null : key)}
+            />
+          ))}
+        </div>
+      )}
+    </HomeSection>
+  )
+}
+
+export function TodayView({ data, navigate, scores }: ViewProps) {
   const analysis = analyzeHome(data)
   const stepsByHour = hourlyBuckets(data.activity.stepsIntraday)
   const steps = hasValue(data.activity.steps) ? data.activity.steps : null
@@ -429,6 +561,10 @@ export function TodayView({ data, navigate }: ViewProps) {
 
   return (
     <div className="page-stack today-page">
+      <div className="home-dashboard scores-standalone">
+        <ScoresSection scores={scores} />
+      </div>
+
       {!hasSteps && !hasHeart && !hasSleep && !hasHealthData(data) && !hasBodyData(data) && data.activities.length === 0 && (
         <Panel className="first-sync-state">
           <CloudIcon aria-hidden="true" />
@@ -666,6 +802,8 @@ export function ActivityView({ data, rangeDays, onRangeChange, historyDays }: Vi
 }
 
 export function HealthView({ data, history, rangeDays, onRangeChange, historyDays }: ViewProps) {
+  // Each past day is scored against the days before it, so the series is a
+  // fair trend rather than today's baseline applied backwards.
   const heartHeatmapDays = history.days.filter((day) => day.heartIntraday !== null).length
   // One cell per day-hour, averaging the minutes that fall inside it. Hours the
   // device did not record simply have no cell and stay transparent.
@@ -783,6 +921,7 @@ export function HealthView({ data, history, rangeDays, onRangeChange, historyDay
             <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Skin temperature" values={data.trends.map((point) => point.skinTemperature)} formatter={(value) => `${signedNumber(value, 1)} °C`} />
             <MetricTrendPanel data={data} category="recovery" icon={GaugeIcon} title="Body temperature" values={data.trends.map((point) => point.coreTemperature)} formatter={(value) => `${formatDecimal(value)} °C`} />
             <MetricTrendPanel data={data} category="heart" icon={GaugeIcon} title="Cardio fitness" values={data.trends.map((point) => point.cardioScore)} formatter={(value) => formatNumber(value)} />
+            <MetricTrendPanel data={data} category="recovery" icon={SparkleIcon} title="Recovery score" values={scoreSeries(data.trends, 'recovery')} formatter={(value) => `${Math.round(value)} / 100`} />
           </div>
         </section>
       )}
@@ -858,7 +997,27 @@ export function SleepView({ data, rangeDays, onRangeChange, historyDays }: ViewP
           {data.sleep.stages.some((stage) => stage.minutes > 0) && (
             <Panel className="sleep-stage-card" category="sleep">
               <PanelHeader eyebrow="Recorded period" title="Time by stage" icon={SignalIcon} />
-              <SleepStageBar stages={data.sleep.stages} />
+              {/* The legend and caption below state the denominator this card uses. */}
+              <SleepStageBar stages={data.sleep.stages} showLegend={false} caption={null} />
+              <div className="sleep-stage-legend">
+                {data.sleep.stages.map((stage) => {
+                  const percent = stage.key === 'deep' ? data.sleep.deepPercent
+                    : stage.key === 'rem' ? data.sleep.remPercent
+                      : stage.key === 'light' ? data.sleep.lightPercent
+                        : null
+                  return (
+                    <div key={stage.key}>
+                      <span className="legend-dot" style={{ background: `var(--sleep-${stage.key})` }} />
+                      <span>{stage.name}</span>
+                      <strong>
+                        {stage.key !== 'wake' && hasValue(percent) ? `${Math.round(percent)}% · ` : ''}
+                        {Math.floor(stage.minutes / 60) ? `${Math.floor(stage.minutes / 60)}h ` : ''}{stage.minutes % 60}m
+                      </strong>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="sleep-stage-caption">Deep, light, and REM percentages are of time asleep; awake shows minutes only, since it isn't part of that total.</p>
               {data.sleep.totalMinutes !== null && data.sleep.goalMinutes !== null && (
                 <div className="compact-stats">
                   <TinyStat label="Difference from goal" value={formatMinutes(data.sleep.totalMinutes - data.sleep.goalMinutes)} />
@@ -894,6 +1053,7 @@ export function SleepView({ data, rangeDays, onRangeChange, historyDays }: ViewP
               </Panel>
             )}
             <MetricTrendPanel data={data} category="sleep" icon={GaugeIcon} title="Efficiency" values={efficiencyValues} formatter={(value) => `${formatNumber(value)}%`} target={90} />
+            <MetricTrendPanel data={data} category="sleep" icon={SparkleIcon} title="Sleep quality score" values={scoreSeries(data.trends, 'sleepQuality')} formatter={(value) => `${Math.round(value)} / 100`} />
             {stageNightsCount > 1 && (
               <Panel className="chart-panel sleep-trend-panel" category="sleep">
                 <PanelHeader eyebrow={`${stageNightsCount} nights with data`} title="Stage composition" icon={SignalIcon} />

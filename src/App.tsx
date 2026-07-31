@@ -36,6 +36,7 @@ import { availableDays, buildHistory, mergeTrendWindow, type RangeDays } from '@
 import { normalizeFitbitData } from '@/data/normalize'
 import { formatDate, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { computeScores } from '@/lib/scores'
 import { ActivityView, BodyView, DevicesView, HealthView, SleepView, TodayView } from '@/components/Views'
 import { HealthAssistant } from '@/components/HealthAssistant'
 import type { AssistantNavigation } from '@/lib/health-assistant'
@@ -401,6 +402,15 @@ export default function App() {
     [data, history, rangeDays],
   )
 
+  // Recovery/load/sleep-quality baselines need up to 90 days of trailing history
+  // regardless of the chart range the user has picked, so scores are computed
+  // from their own fixed window rather than `rangedData`.
+  const scoreData = useMemo(
+    () => ({ ...data, trends: mergeTrendWindow(history, data.trends, data.selectedDate, 90) }),
+    [data, history],
+  )
+  const scores = useMemo(() => computeScores(scoreData, history), [scoreData, history])
+
   const currentView = useMemo(() => {
     const props = {
       data: rangedData,
@@ -410,6 +420,7 @@ export default function App() {
       rangeDays,
       onRangeChange: setRangeDays,
       historyDays,
+      scores,
     }
     if (page === 'activity') return <ActivityView {...props} />
     if (page === 'health') return <HealthView {...props} />
@@ -417,7 +428,7 @@ export default function App() {
     if (page === 'body') return <BodyView {...props} />
     if (page === 'devices') return <DevicesView {...props} />
     return <TodayView {...props} />
-  }, [history, historyDays, page, rangeDays, rangedData, status])
+  }, [history, historyDays, page, rangeDays, rangedData, scores, status])
 
   const isToday = selectedDate === localIso()
   const sourceLabel = status.connected

@@ -759,10 +759,13 @@ export function SleepStageBar({
   stages,
   compact = false,
   showLegend = true,
+  caption = 'Percentages of the recorded period, including awake time.',
 }: {
   stages: SleepStage[]
   compact?: boolean
   showLegend?: boolean
+  /** Pass null when the caller states the denominator itself. */
+  caption?: string | null
 }) {
   const total = stages.reduce((sum, stage) => sum + stage.minutes, 0)
   if (!total) return <div className="chart-empty is-small">No sleep stages available</div>
@@ -789,7 +792,7 @@ export function SleepStageBar({
           ))}
         </div>
       )}
-      {!compact && <p className="sleep-stage-caption">Percentages of the recorded period, including awake time.</p>}
+      {!compact && caption && <p className="sleep-stage-caption">{caption}</p>}
     </div>
   )
 }
