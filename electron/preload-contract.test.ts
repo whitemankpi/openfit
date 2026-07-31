@@ -112,6 +112,8 @@ describe('preload bridge contract', () => {
       'startTurn',
       'cancel',
       'reset',
+      'getConfig',
+      'saveConfig',
       'onEvent',
     ]))
 
@@ -122,6 +124,9 @@ describe('preload bridge contract', () => {
     })
     expect(assistant?.cancel('abc12345')).toMatchObject({ channel: 'assistant:cancel', args: ['abc12345'] })
     expect(assistant?.reset()).toMatchObject({ channel: 'assistant:reset' })
+    expect(assistant?.getConfig()).toMatchObject({ channel: 'assistant:get-config' })
+    expect(assistant?.saveConfig({ provider: 'deepseek' }))
+      .toMatchObject({ channel: 'assistant:save-config', args: [{ provider: 'deepseek' }] })
 
     const handleAssistantEvent = vi.fn()
     const unsubscribe = assistant?.onEvent(handleAssistantEvent) as () => void
@@ -131,6 +136,6 @@ describe('preload bridge contract', () => {
     expect(handleAssistantEvent).toHaveBeenCalledWith({ requestId: 'abc12345', type: 'delta', delta: 'hi' })
     unsubscribe()
     expect(removeListener).toHaveBeenCalledWith('assistant:event', listener)
-    expect(invoke).toHaveBeenCalledTimes(4)
+    expect(invoke).toHaveBeenCalledTimes(6)
   })
 })

@@ -291,6 +291,14 @@ export interface FitbitBridge {
   onDataUpdated: (callback: (event: { date: string; generatedAt?: string | null; reason?: string }) => void) => () => void
 }
 
+export type AssistantProvider = 'codex' | 'deepseek'
+
+export interface AssistantConfig {
+  provider: AssistantProvider
+  /** Whether a DeepSeek key is stored. The key itself never leaves the main process. */
+  hasApiKey: boolean
+}
+
 export interface HealthAssistantStatus {
   available: boolean
   connected: boolean
@@ -314,5 +322,7 @@ export interface HealthAssistantBridge {
   }) => Promise<{ requestId: string }>
   cancel: (requestId: string) => Promise<void>
   reset: () => Promise<void>
+  getConfig: () => Promise<AssistantConfig>
+  saveConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<AssistantConfig>
   onEvent: (callback: (event: HealthAssistantEvent) => void) => () => void
 }

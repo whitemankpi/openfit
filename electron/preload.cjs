@@ -32,5 +32,7 @@ contextBridge.exposeInMainWorld('healthAssistant', Object.freeze({
   startTurn: (input) => ipcRenderer.invoke('assistant:start-turn', input),
   cancel: (requestId) => ipcRenderer.invoke('assistant:cancel', requestId),
   reset: () => ipcRenderer.invoke('assistant:reset'),
+  getConfig: () => ipcRenderer.invoke('assistant:get-config'),
+  saveConfig: (input) => ipcRenderer.invoke('assistant:save-config', input),
   onEvent: (callback) => subscribe('assistant:event', callback),
 }))

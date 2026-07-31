@@ -11,6 +11,7 @@ const googleHealth = require('./google-health-service.cjs')
 const fitbitLegacy = require('./fitbit-legacy-service.cjs')
 const healthCache = require('./health-cache.cjs')
 const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cjs')
+const { createDeepSeekService } = require('./assistant-deepseek.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
@@ -31,9 +32,11 @@ let oauthServer = null
 let oauthTimeout = null
 let credentialFile = null
 let cacheFile = null
+let assistantConfigFile = null
 let syncInFlight = null
 let backfillCanceled = false
 let codexService = null
+let assistantProvider = null
 let assistantRequestId = null
 
 function atomicWrite(file, content) {
@@ -93,6 +96,29 @@ function getCredentials() {
 
 function saveCredentials(credentials) {
   writeSecure(credentialFile, credentials)
+}
+
+function getAssistantConfig() {
+  const stored = readSecure(assistantConfigFile, null)
+  return {
+    provider: stored?.provider === 'deepseek' ? 'deepseek' : 'codex',
+    apiKey: typeof stored?.apiKey === 'string' ? stored.apiKey : '',
+  }
+}
+
+function publicAssistantConfig() {
+  const config = getAssistantConfig()
+  return { provider: config.provider, hasApiKey: Boolean(config.apiKey) }
+}
+
+/** Resolves the configured provider, rebuilding it after a settings change. */
+function activeAssistant() {
+  if (assistantProvider) return assistantProvider
+  const config = getAssistantConfig()
+  assistantProvider = config.provider === 'deepseek'
+    ? (config.apiKey ? createDeepSeekService({ apiKey: config.apiKey }) : null)
+    : codexService
+  return assistantProvider
 }
 
 function publicStatus() {
@@ -561,7 +587,8 @@ function registerIpc() {
     return shell.openExternal(url.toString())
   })
   trustedHandle('assistant:get-status', () => {
-    const status = codexService?.getStatus() || {}
+    const assistant = activeAssistant()
+    const status = assistant?.getStatus() || {}
     const available = status.available ?? Boolean(resolveCodexBinary())
     const unauthorized = /unauthorized|not logged|sign in|authentication/i.test(String(status.lastError || ''))
     return {
@@ -573,7 +600,8 @@ function registerIpc() {
     }
   })
   trustedHandle('assistant:start-turn', (input) => {
-    if (!codexService) throw new Error('The Codex bridge is not ready.')
+    const assistant = activeAssistant()
+    if (!assistant) throw new Error('The assistant bridge is not ready.')
     if (!input || !validAssistantRequestId(input.requestId)) throw new Error('Invalid assistant request.')
     const requestId = input.requestId
     if (assistantRequestId && assistantRequestId !== requestId) throw new Error('Wait for the current assistant response to finish.')
@@ -583,7 +611,7 @@ function registerIpc() {
     if (!healthContext || healthContext.length > 500_000) throw new Error('The health context is empty or too large.')
 
     assistantRequestId = requestId
-    void codexService.startTurn({
+    void assistant.startTurn({
       text: message,
       healthContext,
       onDelta: (delta) => {
@@ -606,11 +634,24 @@ function registerIpc() {
   })
   trustedHandle('assistant:cancel', async (requestId) => {
     if (!validAssistantRequestId(requestId) || assistantRequestId !== requestId) return
-    await codexService?.cancelTurn()
+    await activeAssistant()?.cancelTurn()
   })
   trustedHandle('assistant:reset', async () => {
     assistantRequestId = null
-    await codexService?.reset()
+    await activeAssistant()?.reset()
+  })
+  trustedHandle('assistant:get-config', () => publicAssistantConfig())
+  trustedHandle('assistant:save-config', (input) => {
+    const provider = input?.provider === 'deepseek' ? 'deepseek' : 'codex'
+    const previous = getAssistantConfig()
+    const apiKey = typeof input?.apiKey === 'string' && input.apiKey.trim()
+      ? input.apiKey.trim()
+      : previous.apiKey
+    if (provider === 'deepseek' && !apiKey) throw new Error('DeepSeek requires an API key.')
+    // writeSecure refuses to fall back to plaintext when safeStorage is unavailable.
+    writeSecure(assistantConfigFile, { provider, apiKey })
+    assistantProvider = null
+    return publicAssistantConfig()
   })
 }
 
@@ -621,6 +662,7 @@ app.whenReady().then(() => {
   app.setPath('userData', userData)
   credentialFile = path.join(userData, 'credentials.secure.json')
   cacheFile = path.join(userData, 'health-cache.secure.json')
+  assistantConfigFile = path.join(userData, 'assistant-config.secure.json')
   codexService = createCodexService({ cwd: userData, clientVersion: app.getVersion() })
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   if (!developmentUrl()) {
