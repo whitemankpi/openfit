@@ -2521,7 +2521,9 @@ Store the callback when the turn starts, in the `startTurn` method where `active
       onToolCall: options.onToolCall || null,
 ```
 
-If Task 0 found that Codex accepts tool declarations, also add them to the `thread/start` params using the parameter name recorded in the spike note. If it does not, leave the declaration out — the tools remain reachable only when Codex initiates a call.
+**Do not add a tool declaration to `thread/start`.** The Task 0 spike established that no such parameter exists in codex-cli 0.146.0 — see `docs/superpowers/notes/2026-07-31-codex-tool-spike.md`. Answering `item/tool/call` is still correct: it is a fully specified server request, and handling it properly means a future Codex that does offer tools, or an MCP server added later, finds the client side already right.
+
+Codex reaches the tools through a text directive instead, which is the subject of Task 12a.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2538,6 +2540,189 @@ Expected: PASS.
 ```bash
 git add electron/assistant-codex.cjs electron/assistant-codex.test.ts
 git commit -m "feat(assistant): let Codex reach the local tools"
+```
+
+---
+
+## Task 12a: Text-directive tool calls for Codex
+
+Codex cannot be handed tool definitions, so it asks for them the way it already
+asks for navigation. Same allowlist, same dispatcher, same caps — only the
+transport differs.
+
+**Files:**
+- Modify: `src/lib/health-assistant.ts`
+- Modify: `src/lib/health-assistant.test.ts`
+- Modify: `electron/main.cjs`
+
+**Interfaces:**
+- Consumes: `createDispatcher` (Task 6), the tool round trip (Task 11).
+- Produces:
+
+```ts
+export interface AssistantToolRequest { name: string; args: Record<string, unknown> }
+export function parseAssistantToolRequest(text: string): AssistantToolRequest | null
+export function stripAssistantToolRequest(text: string): string
+```
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `src/lib/health-assistant.test.ts`:
+
+```ts
+import { parseAssistantToolRequest, stripAssistantToolRequest } from './health-assistant'
+
+describe('assistant tool directives', () => {
+  it('reads a well-formed tool request', () => {
+    const text = 'Let me check.\n<!-- openfit:tool {"name":"metric_window","args":{"metric":"steps"}} -->'
+
+    expect(parseAssistantToolRequest(text)).toEqual({
+      name: 'metric_window',
+      args: { metric: 'steps' },
+    })
+  })
+
+  it('ignores a directive with no name', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"args":{}} -->')).toBeNull()
+  })
+
+  it('ignores malformed JSON rather than throwing', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {not json} -->')).toBeNull()
+  })
+
+  it('defaults missing args to an empty object', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"name":"data_coverage"} -->'))
+      .toEqual({ name: 'data_coverage', args: {} })
+  })
+
+  it('refuses args that are not an object, so the dispatcher is not handed a string', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"name":"x","args":"steps"} -->')).toBeNull()
+  })
+
+  it('takes only the first directive when the model emits several', () => {
+    const text = '<!-- openfit:tool {"name":"a"} --><!-- openfit:tool {"name":"b"} -->'
+
+    expect(parseAssistantToolRequest(text)?.name).toBe('a')
+  })
+
+  it('strips the directive from the visible text', () => {
+    const text = 'Checking.\n<!-- openfit:tool {"name":"metric_window"} -->'
+
+    expect(stripAssistantToolRequest(text)).toBe('Checking.')
+  })
+
+  it('leaves a navigation directive alone', () => {
+    const text = 'Opening.\n<!-- openfit:navigate {"page":"sleep"} -->'
+
+    expect(parseAssistantToolRequest(text)).toBeNull()
+    expect(stripAssistantToolRequest(text)).toBe(text)
+  })
+})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run src/lib/health-assistant.test.ts`
+Expected: FAIL — `parseAssistantToolRequest` is not exported.
+
+- [ ] **Step 3: Write the implementation**
+
+In `src/lib/health-assistant.ts`, beside the existing navigation parser:
+
+```ts
+export interface AssistantToolRequest {
+  name: string
+  args: Record<string, unknown>
+}
+
+const toolPattern = /\s*<!--\s*openfit:tool\s+(\{[\s\S]*?\})\s*-->\s*/g
+
+/**
+ * Codex cannot be handed tool definitions, so it requests one the same way it
+ * requests navigation. Only the first directive of a turn is honoured: the
+ * dispatcher's budget counts round trips, and a model emitting several at once
+ * has misunderstood the protocol.
+ */
+export function parseAssistantToolRequest(text: string): AssistantToolRequest | null {
+  toolPattern.lastIndex = 0
+  const match = toolPattern.exec(text)
+  if (!match) return null
+  try {
+    const value = JSON.parse(match[1]) as { name?: unknown; args?: unknown }
+    const name = typeof value.name === 'string' ? value.name.trim() : ''
+    if (!name) return null
+    if (value.args !== undefined && (typeof value.args !== 'object' || value.args === null || Array.isArray(value.args))) {
+      return null
+    }
+    return { name, args: (value.args as Record<string, unknown>) ?? {} }
+  } catch {
+    return null
+  }
+}
+
+export function stripAssistantToolRequest(text: string) {
+  toolPattern.lastIndex = 0
+  return text.replace(toolPattern, '').trim()
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run src/lib/health-assistant.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Loop the directive through the dispatcher**
+
+In `electron/main.cjs`, the Codex branch of a turn needs to notice a tool
+directive in the completed text, run it, and start a follow-up turn carrying the
+result. Add beside the turn handling:
+
+```js
+const MAX_DIRECTIVE_ROUNDS = 8
+
+/**
+ * Codex asks for a tool by writing a directive rather than through the
+ * protocol, so a tool call costs a full turn. The dispatcher's budget still
+ * applies; this bound stops a model that keeps asking.
+ */
+async function runCodexToolRounds(assistant, requestId, firstText, dispatcher, onDelta) {
+  let text = firstText
+  for (let round = 0; round < MAX_DIRECTIVE_ROUNDS; round += 1) {
+    const request = parseToolDirective(text)
+    if (!request) return text
+    const outcome = await dispatcher.call(request.name, request.args)
+    if (assistantRequestId !== requestId) return text
+    sendAssistantEvent({ requestId, type: 'tool', name: request.name, ok: outcome.ok })
+    const followUp = await assistant.startTurn({
+      text: `<OPENFIT_TOOL_RESULT tool="${request.name}">\n${JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error })}\n</OPENFIT_TOOL_RESULT>`,
+      healthContext: '',
+      onDelta,
+    })
+    text = followUp.text
+  }
+  return text
+}
+```
+
+`parseToolDirective` is the CommonJS twin of the renderer parser — `main.cjs`
+cannot import TypeScript, so it carries its own copy of the same regex and the
+same rejection rules. Keep the two in step; the test above pins the behaviour
+for the renderer side, and `assistant-dispatch.test.ts` guards the allowlist for
+both.
+
+Call it where a Codex turn completes, before the `complete` event is sent, and
+strip the directive from the visible text.
+
+- [ ] **Step 6: Run the gate**
+
+Run: `npm run check`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/health-assistant.ts src/lib/health-assistant.test.ts electron/main.cjs
+git commit -m "feat(assistant): let Codex request tools by directive"
 ```
 
 ---
