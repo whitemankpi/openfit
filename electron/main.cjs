@@ -12,6 +12,7 @@ const fitbitLegacy = require('./fitbit-legacy-service.cjs')
 const healthCache = require('./health-cache.cjs')
 const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cjs')
 const { createDeepSeekService } = require('./assistant-deepseek.cjs')
+const assistantConfigLogic = require('./assistant-config.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
@@ -38,6 +39,10 @@ let backfillCanceled = false
 let codexService = null
 let assistantProvider = null
 let assistantRequestId = null
+// The exact service instance handling the in-flight turn, so a config save
+// (which rebuilds assistantProvider) can never leave cancel/reset targeting a
+// freshly-constructed instance instead of the one actually streaming.
+let assistantInFlight = null
 
 function atomicWrite(file, content) {
   const temporary = `${file}.${process.pid}.tmp`
@@ -99,16 +104,11 @@ function saveCredentials(credentials) {
 }
 
 function getAssistantConfig() {
-  const stored = readSecure(assistantConfigFile, null)
-  return {
-    provider: stored?.provider === 'deepseek' ? 'deepseek' : 'codex',
-    apiKey: typeof stored?.apiKey === 'string' ? stored.apiKey : '',
-  }
+  return assistantConfigLogic.normalizeConfig(readSecure(assistantConfigFile, null))
 }
 
 function publicAssistantConfig() {
-  const config = getAssistantConfig()
-  return { provider: config.provider, hasApiKey: Boolean(config.apiKey) }
+  return assistantConfigLogic.toPublicConfig(getAssistantConfig())
 }
 
 /** Resolves the configured provider, rebuilding it after a settings change. */
@@ -611,6 +611,7 @@ function registerIpc() {
     if (!healthContext || healthContext.length > 500_000) throw new Error('The health context is empty or too large.')
 
     assistantRequestId = requestId
+    assistantInFlight = assistant
     void assistant.startTurn({
       text: message,
       healthContext,
@@ -620,10 +621,12 @@ function registerIpc() {
     }).then((result) => {
       if (assistantRequestId !== requestId) return
       assistantRequestId = null
+      assistantInFlight = null
       sendAssistantEvent({ requestId, type: 'complete', text: result.text })
     }).catch((error) => {
       if (assistantRequestId !== requestId) return
       assistantRequestId = null
+      assistantInFlight = null
       if (error?.name === 'AbortError' || error?.code === 'CODEX_TURN_CANCELLED') {
         sendAssistantEvent({ requestId, type: 'cancelled' })
       } else {
@@ -634,24 +637,25 @@ function registerIpc() {
   })
   trustedHandle('assistant:cancel', async (requestId) => {
     if (!validAssistantRequestId(requestId) || assistantRequestId !== requestId) return
-    await activeAssistant()?.cancelTurn()
+    // Prefer the instance that is actually streaming the turn: a config save
+    // in the meantime may have rebuilt activeAssistant() into a new instance.
+    await (assistantInFlight ?? activeAssistant())?.cancelTurn()
   })
   trustedHandle('assistant:reset', async () => {
+    const assistant = assistantInFlight ?? activeAssistant()
     assistantRequestId = null
-    await activeAssistant()?.reset()
+    assistantInFlight = null
+    await assistant?.reset()
   })
   trustedHandle('assistant:get-config', () => publicAssistantConfig())
   trustedHandle('assistant:save-config', (input) => {
-    const provider = input?.provider === 'deepseek' ? 'deepseek' : 'codex'
+    if (assistantRequestId) throw new Error('Wait for the current assistant response to finish before changing the model.')
     const previous = getAssistantConfig()
-    const apiKey = typeof input?.apiKey === 'string' && input.apiKey.trim()
-      ? input.apiKey.trim()
-      : previous.apiKey
-    if (provider === 'deepseek' && !apiKey) throw new Error('DeepSeek requires an API key.')
+    const next = assistantConfigLogic.resolveSaveConfig(input, previous)
     // writeSecure refuses to fall back to plaintext when safeStorage is unavailable.
-    writeSecure(assistantConfigFile, { provider, apiKey })
+    writeSecure(assistantConfigFile, next)
     assistantProvider = null
-    return publicAssistantConfig()
+    return assistantConfigLogic.toPublicConfig(next)
   })
 }
 
