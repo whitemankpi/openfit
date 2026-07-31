@@ -1,6 +1,7 @@
 import type { DashboardData, TrendPoint } from '@/types'
 import type { History } from '@/data/history'
 import { robustBaseline } from './home-analysis'
+import { computeScores, type ScoreKey } from './scores'
 
 export interface ToolContext {
   data: DashboardData
@@ -100,6 +101,68 @@ function slopePerWeek(points: Array<{ date: string; value: number | null }>) {
   return Math.round((covariance / variance) * 7 * 100) / 100
 }
 
+const SCORE_KEYS: ScoreKey[] = ['recovery', 'load', 'sleepQuality']
+
+const explainScore: ToolDefinition = {
+  name: 'explain_score',
+  description: 'Break a score into the factors that produced it, with each factor\'s deviation, weight, and points.',
+  schema: {
+    type: 'object',
+    properties: { score: { type: 'string', enum: SCORE_KEYS } },
+    required: ['score'],
+  },
+  run: (args, context) => {
+    const score = String(args.score ?? '') as ScoreKey
+    if (!SCORE_KEYS.includes(score)) {
+      return toolError(`Unknown score "${score}". Available: ${SCORE_KEYS.join(', ')}.`)
+    }
+    const result = computeScores(context.data, context.history)[score]
+    return {
+      score,
+      date: context.data.selectedDate,
+      value: result.value,
+      status: result.status,
+      confidence: result.confidence,
+      baselineDays: result.baselineDays,
+      contributions: result.contributions,
+      missing: result.missing,
+    }
+  },
+}
+
+const dataCoverage: ToolDefinition = {
+  name: 'data_coverage',
+  description: 'Report which metrics have data over a range, how many days each has, and which are absent entirely.',
+  schema: {
+    type: 'object',
+    properties: {
+      start: { type: 'string', description: 'YYYY-MM-DD' },
+      end: { type: 'string', description: 'YYYY-MM-DD' },
+    },
+    required: ['start', 'end'],
+  },
+  run: (args, context) => {
+    const range = readRange(args)
+    if ('error' in range) return range
+
+    const days = context.history.days.filter((day) => day.date >= range.start && day.date <= range.end)
+    const metrics = METRIC_KEYS.map((metric) => ({
+      metric,
+      n: finite(days.map((day) => METRICS[metric](day.trend))).length, // metric comes from METRIC_KEYS, so it is always own
+    }))
+    return {
+      start: range.start,
+      end: range.end,
+      totalDays: days.length,
+      firstDate: days[0]?.date ?? null,
+      lastDate: days.at(-1)?.date ?? null,
+      metrics: metrics.filter((entry) => entry.n > 0),
+      missing: metrics.filter((entry) => entry.n === 0).map((entry) => entry.metric),
+      intradayDays: days.filter((day) => day.heartIntraday !== null).length,
+    }
+  },
+}
+
 const metricWindow: ToolDefinition = {
   name: 'metric_window',
   description: 'Summarise one metric over a date range: count, median, spread, extremes, and weekly slope.',
@@ -141,7 +204,7 @@ const metricWindow: ToolDefinition = {
   },
 }
 
-export const ASSISTANT_TOOLS: ToolDefinition[] = [metricWindow]
+export const ASSISTANT_TOOLS: ToolDefinition[] = [metricWindow, explainScore, dataCoverage]
 
 export const TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name)
 

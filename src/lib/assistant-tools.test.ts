@@ -60,3 +60,50 @@ describe('metric_window', () => {
     }
   })
 })
+
+describe('explain_score', () => {
+  it('returns the same breakdown the interface shows', () => {
+    const result = runTool('explain_score', { score: 'recovery' }, context()) as {
+      value: number | null
+      confidence: string
+      contributions: Array<{ key: string; points: number }>
+    }
+
+    expect(result.confidence).toBe('ready')
+    const total = result.contributions.reduce((sum, item) => sum + item.points, 0)
+    expect(total).toBe(result.value)
+  })
+
+  it('refuses an unknown score name', () => {
+    const result = runTool('explain_score', { score: 'readiness' }, context()) as { error: string }
+    expect(result.error).toContain('readiness')
+  })
+})
+
+describe('data_coverage', () => {
+  it('reports which metrics have data and how many days', () => {
+    const result = runTool('data_coverage', {
+      start: '2026-06-01',
+      end: '2026-06-30',
+    }, context()) as { totalDays: number; metrics: Array<{ metric: string; n: number }> }
+
+    expect(result.totalDays).toBe(30)
+    const steps = result.metrics.find((entry) => entry.metric === 'steps')
+    expect(steps?.n).toBe(30)
+  })
+
+  it('names metrics that are entirely absent', () => {
+    const bare = context()
+    bare.history = {
+      maxHeartRate: null,
+      days: bare.history.days.map((day) => ({ ...day, trend: { ...day.trend, hrvMs: null } })),
+    }
+
+    const result = runTool('data_coverage', {
+      start: '2026-06-01',
+      end: '2026-06-30',
+    }, bare) as { missing: string[] }
+
+    expect(result.missing).toContain('hrvMs')
+  })
+})
