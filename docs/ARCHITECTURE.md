@@ -8,7 +8,7 @@
 - Partial consent and missing sensors must not block the dashboard.
 - Encrypted per-day health archive and no upload to OpenFit services. Completed days are read locally without new provider requests. If `safeStorage` is unavailable, or Linux selects the unencrypted `basic_text` backend, saving fails explicitly.
 - One normalization layer, so views do not depend on remote API shapes.
-- Optional chat through Codex app-server. The project contains no API key, and no health data is sent until the user sends a message.
+- Optional chat through Codex app-server or the DeepSeek API, selected in settings. Both are remote services: health data leaves the machine during a conversation, but nothing is sent until the user sends a message.
 
 ## Flow
 
@@ -24,9 +24,10 @@ flowchart LR
     Main -->|safeStorage| Cache["Encrypted local cache"]
     Main -->|IPC allowlist| Preload["contextBridge"]
     Preload --> Renderer["React renderer"]
-    Renderer -->|Compact health context on request| Preload
+    Renderer -->|Manifest + tool results on request| Preload
     Preload -->|Chat IPC| Main
     Main -->|JSONL stdio, read-only sandbox| Codex["Codex app-server"]
+    Main -->|HTTPS| DeepSeek["DeepSeek API"]
 ```
 
 ## Security Boundaries
@@ -40,7 +41,9 @@ The main process is the only process allowed to:
 - call `health.googleapis.com` and `api.fitbit.com`;
 - read and write cache and credentials;
 - open external URLs and export files only after explicit user action;
-- start Codex app-server and forward only the compact health context prepared for the turn.
+- start Codex app-server, or call the DeepSeek API over HTTPS, forwarding only the manifest and tool results prepared for the turn;
+- hold the DeepSeek API key, encrypted via `safeStorage`, and the assistant provider choice; the renderer only ever receives `hasApiKey: boolean`;
+- run the tool dispatcher's allowlist, call-count, timeout, and result-size checks on every tool call, in both directions.
 
 ### Preload
 
@@ -48,11 +51,25 @@ The preload exposes an operation allowlist through `contextBridge`. It does not 
 
 ### Renderer
 
-The renderer runs with `nodeIntegration: false`, `contextIsolation: true`, and sandboxing enabled. It receives public status and credential-free health payloads, then normalizes and compacts only the metrics needed before a Codex turn.
+The renderer runs with `nodeIntegration: false`, `contextIsolation: true`, and sandboxing enabled. It receives public status and credential-free health payloads, then builds the opening manifest and executes assistant tool calls before handing results back to main.
 
-### Codex Bridge
+### Assistant providers
 
-`codex-service.cjs` resolves the Codex Desktop executable, starts `codex app-server` over stdio, and reuses the local authentication. Every thread uses `read-only`, `approvalPolicy: never`, and disabled network access for tools. Shell, patch, permission, input, and tool requests are denied by the client. Fitbit and Google OAuth credentials never enter the model context.
+`assistant-codex.cjs` (renamed from `codex-service.cjs`) resolves the Codex Desktop executable, starts `codex app-server` over stdio, and reuses the local authentication. Every thread uses `read-only`, `approvalPolicy: never`, and disabled network access for its own shell/patch tools — those requests are still denied by the client. `assistant-deepseek.cjs` calls the DeepSeek API directly over HTTPS, against the fixed base URL `https://api.deepseek.com`; this is a literal in the source, not a setting, so a compromised or misconfigured config cannot redirect health data elsewhere. Fitbit and Google OAuth credentials never enter either provider's context. `assistant-config.cjs` persists the provider choice and the DeepSeek key (encrypted via `safeStorage`) and is the only place that reads the key back out.
+
+Both providers are remote: Codex app-server talks to OpenAI's backend and DeepSeek talks to its own API. Health data leaves the machine once a conversation starts. Neither is contacted until the user sends a message.
+
+### Tool layer
+
+`src/lib/assistant-tools.ts` defines six read-only tools — `metric_window`, `compare_periods`, `correlate`, `explain_score`, `weekday_pattern`, `data_coverage` — that compute aggregates over the local `History` and scores rather than returning raw archive rows. Metric names are checked against an own-property-guarded allowlist because they arrive from a model that has read user-supplied text. `src/lib/analytics.ts` supplies the Spearman rank correlation and per-weekday medians behind two of those tools.
+
+`electron/assistant-dispatch.cjs` is the guard between model and tools: a closed allowlist of tool names, 8 calls per turn, a 5000 ms timeout per call, and a 4096-byte cap on each serialized result. `call()` never rejects — every failure mode (unknown tool, bad arguments, timeout, oversized result) comes back as `{ ok: false, error }` so a turn can continue instead of crashing.
+
+The two providers request tools differently. DeepSeek gets them through the native OpenAI-style `tools` field. Codex app-server has no mechanism to declare custom tools (see `docs/superpowers/notes/2026-07-31-codex-tool-spike.md`), so `assistant-directives.cjs` parses a text convention instead: a trailing `<!-- openfit:tool {"name":...,"args":...} -->` HTML comment in the reply. Each directive costs Codex a full turn, and the parser accepts at most one call per reply.
+
+Tools execute in the renderer, not in main, which looks backwards for a process that is supposed to hold the security boundary. The tools, the `History` type, and the score functions are TypeScript under `src/`; `main.cjs` is CommonJS and cannot import them. Reimplementing that normalization stack in main just to run tools there was rejected as duplication with no security benefit — main still holds the only API key and the only model connection, and still validates every tool call in both directions through the dispatcher above. What moved to the renderer is computation over already-normalized, already-local data, not custody of anything secret.
+
+`src/lib/assistant-manifest.ts` replaced the archive dump that opened every conversation. It reports what data exists and over what range rather than the values themselves, and leaves the model to pull specific numbers through the tools above. Against the demo dataset (365 days) the manifest is about 1300 characters; the archive dump it replaced was allowed to grow past 500,000.
 
 ## Provider Contract
 

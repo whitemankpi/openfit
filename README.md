@@ -35,7 +35,7 @@ Requirements:
 
 - Node.js 22 or later;
 - npm 10 or later;
-- Codex Desktop and a signed-in Codex account, only if you want to use the health assistant. OpenFit reuses the local login and does not require an API key.
+- Codex Desktop and a signed-in Codex account, only if you want to use the health assistant with the Codex provider. OpenFit reuses the local login and does not require an API key. A DeepSeek API key is an alternative, selectable in settings.
 
 ```bash
 npm install
@@ -221,7 +221,9 @@ For a longer checklist, see [Google Health setup](docs/GOOGLE_HEALTH_SETUP.md).
 electron/
   main.cjs                    Electron shell, OAuth loopback, IPC, encrypted storage
   preload.cjs                 Minimal typed IPC bridge
-  codex-service.cjs           Read-only Codex app-server JSONL client
+  assistant-codex.cjs         Read-only Codex app-server JSONL client
+  assistant-deepseek.cjs      DeepSeek API client (fixed endpoint)
+  assistant-dispatch.cjs      Tool-call allowlist, limits, and timeout
   google-health-service.cjs   Google Health API v4 provider
   fitbit-legacy-service.cjs   Legacy Fitbit Web API provider with PKCE
 src/
@@ -251,11 +253,11 @@ See [Architecture](docs/ARCHITECTURE.md) for security boundaries and design deci
 
 ## Health assistant
 
-The chat button in the top bar opens a right-side panel built with assistant-ui primitives. Its bridge uses `codex app-server`, the same local interface used by Codex clients, with a read-only sandbox, approvals disabled, and tool calls denied by default.
+The chat button in the top bar opens a right-side panel built with assistant-ui primitives. The model is selectable in settings between two providers: Codex, bridged locally through `codex app-server` with a read-only sandbox and approvals disabled, and DeepSeek, called directly over HTTPS against a fixed endpoint. Both are remote services — the conversation and the health data behind it reach OpenAI's or DeepSeek's infrastructure, never only this machine.
 
-When you send a message, OpenFit creates a compact context containing normalized metrics, available dates, and details for the selected day. It does not include OAuth credentials or encrypted files. This context is sent to Codex/OpenAI only after you use the chat. Codex may navigate to an OpenFit view or date, but it cannot modify health data.
+Nothing is sent until you send a message. Each conversation opens with a compact manifest — what data exists and over what range, not the values themselves — and the assistant pulls specific numbers on demand through a small set of read-only tools (metric windows, period comparisons, correlations, score explanations, weekday patterns, data coverage). Every tool call is checked against a closed allowlist, capped at 8 calls per turn, and time-limited, on the way in and on the way out. None of this includes OAuth credentials or encrypted files. The assistant may navigate to an OpenFit view or date, but it cannot modify health data.
 
-No Codex model name is hard-coded in this repository. The app-server selects its configured default model unless a model is supplied programmatically through the service options.
+A DeepSeek API key, once entered, is stored encrypted the same way OAuth credentials are; the renderer only ever learns whether a key is present, never the key itself. No Codex model name is hard-coded in this repository — the app-server selects its configured default model unless one is supplied programmatically through the service options.
 
 ## Official references
 
