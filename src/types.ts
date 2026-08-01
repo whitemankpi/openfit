@@ -312,6 +312,7 @@ export type HealthAssistantEvent =
   | { requestId: string; type: 'complete'; text?: string }
   | { requestId: string; type: 'error'; message: string }
   | { requestId: string; type: 'cancelled' }
+  | { requestId: string; type: 'tool'; name: string; ok: boolean }
 
 export interface HealthAssistantBridge {
   getStatus: () => Promise<HealthAssistantStatus>
@@ -319,10 +320,14 @@ export interface HealthAssistantBridge {
     requestId: string
     message: string
     healthContext: string
+    tools: Array<{ name: string; description: string; schema: Record<string, unknown> }>
+    toolNames: string[]
   }) => Promise<{ requestId: string }>
   cancel: (requestId: string) => Promise<void>
   reset: () => Promise<void>
   getConfig: () => Promise<AssistantConfig>
   saveConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<AssistantConfig>
   onEvent: (callback: (event: HealthAssistantEvent) => void) => () => void
+  respondToTool: (response: { callId: string; result?: unknown; error?: string }) => Promise<void>
+  onToolRequest: (callback: (request: { callId: string; name: string; args: Record<string, unknown> }) => void) => () => void
 }

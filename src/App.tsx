@@ -595,6 +595,7 @@ export default function App() {
       <HealthAssistant
         open={assistantOpen}
         data={data}
+        history={history}
         page={page}
         onOpenChange={setAssistantOpen}
         onNavigate={navigateFromAssistant}

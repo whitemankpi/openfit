@@ -1568,6 +1568,9 @@ input:focus-visible,
   padding: 24px 0 34px;
 }
 
+.assistant-tool-activity { margin: 0 0 8px; padding: 0; list-style: none; color: var(--color-slate); font-size: 12px; }
+.assistant-tool-activity li::before { content: '· '; }
+
 .assistant-user-message {
   display: flex;
   justify-content: flex-end;

@@ -11,20 +11,20 @@ import {
   type ThreadMessage,
 } from '@assistant-ui/react'
 import { ArrowDown, ArrowUp, Plus, Sparkles, Square, X } from 'lucide-react'
-import { normalizeFitbitData } from '@/data/normalize'
+import type { History } from '@/data/history'
 import {
-  buildHealthAssistantContext,
   parseAssistantNavigation,
   stripAssistantNavigation,
   visibleAssistantText,
   type AssistantNavigation,
 } from '@/lib/health-assistant'
+import { ASSISTANT_TOOLS, TOOL_NAMES, runTool } from '@/lib/assistant-tools'
+import { buildAssistantManifest } from '@/lib/assistant-manifest'
 import type {
   DashboardData,
   HealthAssistantEvent,
   HealthAssistantStatus,
   PageId,
-  RawHealthArchive,
 } from '@/types'
 
 const unavailableStatus: HealthAssistantStatus = {
@@ -41,13 +41,6 @@ function messageText(message: ThreadMessage | undefined) {
     .map((part) => part.text)
     .join('\n')
     .trim()
-}
-
-function archiveData(archive: RawHealthArchive | null | undefined) {
-  if (!archive) return []
-  return Object.values(archive.days)
-    .map((payload) => normalizeFitbitData(payload))
-    .sort((left, right) => left.selectedDate.localeCompare(right.selectedDate))
 }
 
 function statusLabel(status: HealthAssistantStatus, hasBridge: boolean) {
@@ -82,24 +75,44 @@ function createQueue() {
 export function HealthAssistant({
   open,
   data,
+  history,
   page,
   onOpenChange,
   onNavigate,
 }: {
   open: boolean
   data: DashboardData
+  history: History
   page: PageId
   onOpenChange: (open: boolean) => void
   onNavigate: (navigation: AssistantNavigation) => void
 }) {
   const dataRef = useRef(data)
+  const historyRef = useRef(history)
   const pageRef = useRef(page)
   const navigateRef = useRef(onNavigate)
   const [status, setStatus] = useState(unavailableStatus)
+  const [toolActivity, setToolActivity] = useState<string[]>([])
 
   useEffect(() => { dataRef.current = data }, [data])
+  useEffect(() => { historyRef.current = history }, [history])
   useEffect(() => { pageRef.current = page }, [page])
   useEffect(() => { navigateRef.current = onNavigate }, [onNavigate])
+
+  useEffect(() => window.healthAssistant?.onToolRequest(async (request) => {
+    try {
+      const result = runTool(request.name, request.args, {
+        data: dataRef.current,
+        history: historyRef.current,
+      })
+      await window.healthAssistant?.respondToTool({ callId: request.callId, result })
+    } catch (error) {
+      await window.healthAssistant?.respondToTool({
+        callId: request.callId,
+        error: error instanceof Error ? error.message : 'Tool failed.',
+      })
+    }
+  }), [])
 
   const refreshStatus = useCallback(async () => {
     if (!window.healthAssistant) {
@@ -129,22 +142,14 @@ export function HealthAssistant({
       const prompt = messageText(messages.at(-1))
       if (!prompt) throw new Error('Write a question before sending it.')
 
-      let archived: DashboardData[] = []
-      if (window.fitbit && dataRef.current.source !== 'demo') {
-        try {
-          archived = archiveData(await window.fitbit.getCachedArchive())
-        } catch {
-          archived = []
-        }
-      }
-
-      const healthContext = buildHealthAssistantContext(dataRef.current, archived, pageRef.current)
+      const healthContext = buildAssistantManifest(dataRef.current, historyRef.current, pageRef.current)
       const requestId = crypto.randomUUID()
       const queue = createQueue()
       let fullText = ''
       let lastVisibleText = ''
       let completed = false
 
+      setToolActivity([])
       const unsubscribe = bridge.onEvent((event) => {
         if (event.requestId === requestId) queue.push(event)
       })
@@ -152,7 +157,13 @@ export function HealthAssistant({
       abortSignal.addEventListener('abort', onAbort, { once: true })
 
       try {
-        await bridge.startTurn({ requestId, message: prompt, healthContext })
+        await bridge.startTurn({
+          requestId,
+          message: prompt,
+          healthContext,
+          tools: ASSISTANT_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, schema: tool.schema })),
+          toolNames: TOOL_NAMES,
+        })
         void refreshStatus()
 
         while (!completed) {
@@ -169,6 +180,8 @@ export function HealthAssistant({
             if (event.text) fullText = event.text
           } else if (event.type === 'error') {
             throw new Error(event.message)
+          } else if (event.type === 'tool') {
+            setToolActivity((entries) => [...entries, `${event.name}${event.ok ? '' : ' failed'}`])
           } else {
             return
           }
@@ -208,7 +221,7 @@ export function HealthAssistant({
           onClose={() => onOpenChange(false)}
           onStatusRefresh={refreshStatus}
         />
-        <AssistantThread ready={ready} />
+        <AssistantThread ready={ready} toolActivity={toolActivity} />
       </aside>
       {open && <button className="assistant-scrim" aria-label="Close health assistant" onClick={() => onOpenChange(false)} />}
     </AssistantRuntimeProvider>
@@ -256,7 +269,7 @@ function AssistantHeader({
   )
 }
 
-function AssistantThread({ ready }: { ready: boolean }) {
+function AssistantThread({ ready, toolActivity }: { ready: boolean; toolActivity: string[] }) {
   return (
     <ThreadPrimitive.Root className="assistant-thread">
       <ThreadPrimitive.Viewport className="assistant-viewport">
@@ -271,6 +284,12 @@ function AssistantThread({ ready }: { ready: boolean }) {
             </div>
           </div>
         </AuiIf>
+
+        {toolActivity.length > 0 && (
+          <ul className="assistant-tool-activity">
+            {toolActivity.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}
+          </ul>
+        )}
 
         <div className="assistant-messages">
           <ThreadPrimitive.Messages>

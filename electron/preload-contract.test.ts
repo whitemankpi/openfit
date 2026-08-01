@@ -115,6 +115,8 @@ describe('preload bridge contract', () => {
       'getConfig',
       'saveConfig',
       'onEvent',
+      'onToolRequest',
+      'respondToTool',
     ]))
 
     expect(assistant?.getStatus()).toMatchObject({ channel: 'assistant:get-status' })
@@ -136,6 +138,19 @@ describe('preload bridge contract', () => {
     expect(handleAssistantEvent).toHaveBeenCalledWith({ requestId: 'abc12345', type: 'delta', delta: 'hi' })
     unsubscribe()
     expect(removeListener).toHaveBeenCalledWith('assistant:event', listener)
-    expect(invoke).toHaveBeenCalledTimes(6)
+
+    expect(assistant?.respondToTool({ callId: 'c1', result: { n: 1 } }))
+      .toMatchObject({ channel: 'assistant:tool-response', args: [{ callId: 'c1', result: { n: 1 } }] })
+
+    const handleToolRequest = vi.fn()
+    const unsubscribeToolRequest = assistant?.onToolRequest(handleToolRequest) as () => void
+    const toolRequestListener = on.mock.calls.at(-1)?.[1]
+    expect(on.mock.calls.at(-1)?.[0]).toBe('assistant:tool-request')
+    toolRequestListener('electron-event', { callId: 'c1', name: 'metric_window', args: {} })
+    expect(handleToolRequest).toHaveBeenCalledWith({ callId: 'c1', name: 'metric_window', args: {} })
+    unsubscribeToolRequest()
+    expect(removeListener).toHaveBeenCalledWith('assistant:tool-request', toolRequestListener)
+
+    expect(invoke).toHaveBeenCalledTimes(7)
   })
 })

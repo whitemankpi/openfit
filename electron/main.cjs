@@ -13,6 +13,7 @@ const healthCache = require('./health-cache.cjs')
 const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cjs')
 const { createDeepSeekService } = require('./assistant-deepseek.cjs')
 const assistantConfigLogic = require('./assistant-config.cjs')
+const { createDispatcher, DEFAULT_TIMEOUT_MS } = require('./assistant-dispatch.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
@@ -494,7 +495,48 @@ function createWindow() {
   } else {
     void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    rejectAllPendingToolCalls('The window closed before the tool call finished.')
+  })
+}
+
+const pendingToolCalls = new Map()
+let toolCallSequence = 0
+
+/**
+ * Tools run in the renderer because that is where the normalised history and
+ * scores already exist; main.cjs is CommonJS and cannot import the TypeScript
+ * that builds them. Main stays the only holder of the key and the model stream.
+ */
+function executeToolInRenderer(name, args) {
+  return new Promise((resolve, reject) => {
+    if (!mainWindow) {
+      reject(new Error('No window is available to execute the tool.'))
+      return
+    }
+    toolCallSequence += 1
+    const callId = `tool-${toolCallSequence}`
+    // The dispatcher races this promise against its own timeout, so a silent
+    // renderer never hangs the model's turn. But that race alone would leave
+    // this entry (and its closures) in the map forever if the renderer never
+    // answers, so this call carries its own timeout that settles and clears
+    // the entry independently of whoever else is watching it.
+    const timer = setTimeout(() => {
+      pendingToolCalls.delete(callId)
+      reject(new Error('The renderer did not answer the tool request in time.'))
+    }, DEFAULT_TIMEOUT_MS)
+    pendingToolCalls.set(callId, {
+      resolve: (value) => { clearTimeout(timer); resolve(value) },
+      reject: (error) => { clearTimeout(timer); reject(error) },
+    })
+    mainWindow.webContents.send('assistant:tool-request', { callId, name, args })
+  })
+}
+
+function rejectAllPendingToolCalls(message) {
+  for (const pending of pendingToolCalls.values()) pending.reject(new Error(message))
+  pendingToolCalls.clear()
 }
 
 function registerIpc() {
@@ -610,13 +652,24 @@ function registerIpc() {
     if (!message || message.length > 20_000) throw new Error('The assistant message is empty or too long.')
     if (!healthContext || healthContext.length > 500_000) throw new Error('The health context is empty or too large.')
 
+    const toolNames = Array.isArray(input.toolNames) ? input.toolNames.map(String) : []
+    const dispatcher = createDispatcher({ allowedNames: toolNames, execute: executeToolInRenderer })
+
     assistantRequestId = requestId
     assistantInFlight = assistant
     void assistant.startTurn({
       text: message,
       healthContext,
+      tools: Array.isArray(input.tools) ? input.tools : [],
       onDelta: (delta) => {
         if (assistantRequestId === requestId) sendAssistantEvent({ requestId, type: 'delta', delta })
+      },
+      onToolCall: async (name, args) => {
+        const outcome = await dispatcher.call(name, args)
+        if (assistantRequestId === requestId) {
+          sendAssistantEvent({ requestId, type: 'tool', name, ok: outcome.ok })
+        }
+        return outcome
       },
     }).then((result) => {
       if (assistantRequestId !== requestId) return
@@ -646,6 +699,14 @@ function registerIpc() {
     assistantRequestId = null
     assistantInFlight = null
     await assistant?.reset()
+  })
+  trustedHandle('assistant:tool-response', (response) => {
+    const callId = String(response?.callId || '')
+    const pending = pendingToolCalls.get(callId)
+    if (!pending) return
+    pendingToolCalls.delete(callId)
+    if (response.error) pending.reject(new Error(String(response.error)))
+    else pending.resolve(response.result)
   })
   trustedHandle('assistant:get-config', () => publicAssistantConfig())
   trustedHandle('assistant:save-config', (input) => {
