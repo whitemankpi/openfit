@@ -21,8 +21,9 @@ constraints below.
 
 ## What this is not
 
-Not a transcript archive. Not a retrieval system. Not autonomous: nothing is
-stored without an explicit click.
+Not a transcript archive. Not semantic retrieval — entries are selected by date
+and metric, which cannot miss the way a similarity search can. Not autonomous:
+nothing is stored without an explicit click.
 
 ## Architecture
 
@@ -82,10 +83,35 @@ two actions: remember, or dismiss. Nothing is stored until the click. The entry
 is shown word for word rather than paraphrased, because the only real defence
 against remembering something false is that the user read it first.
 
-**Reading.** Every entry goes into the manifest of every conversation. Not
-selective retrieval: a personal memory holds tens of entries, and a system that
-picks the "relevant" ones will sometimes withhold the one that explains the
-anomaly — which is the whole point of having it.
+**Reading — a core in the manifest, the rest on request.**
+
+The first draft of this design sent everything every turn, on the reasoning that
+a retrieval system will eventually withhold the one entry that explains an
+anomaly. That objection holds against *semantic* retrieval, which guesses at
+relevance. It does not hold here, because these entries are not retrieved by
+meaning:
+
+- **Preferences and facts** are few and shape every answer. They ride in the
+  manifest, always.
+- **Episodes** are bounded by dates by definition. "Ill 10–17 March" is needed
+  exactly when the conversation touches March.
+- **Conclusions** are bound to metrics. One about sleep and load is needed when
+  sleep or load is under discussion.
+
+So the selection is by date and metric — deterministic, not a guess. A seventh
+tool, `recall(dateRange?, metric?)`, returns the episodes overlapping the range
+and the conclusions touching the metric. Asked about March, it cannot fail to
+return March.
+
+The manifest carries the **count** of episodes and conclusions and the date span
+they cover. This is the part that makes it safe, and it follows the rule
+`data_coverage` already establishes: a model that knows what it does not know
+asks; a model that does not, invents.
+
+The cost is asymmetric between providers. DeepSeek calls `recall` inside one
+turn; Codex has no native tools and spends a whole turn on the directive round
+trip. That asymmetry is accepted rather than papered over with per-provider
+behaviour: one policy is easier to explain, and half the tests.
 
 **Limits, not eviction.** 50 entries or 4096 bytes of serialised memory,
 whichever comes first, and 280 characters per entry. At the limit the proposal
@@ -103,9 +129,12 @@ Two mechanical details, fixed here so they are not decided twice:
   `createdAt` reflects when the fact was first learned rather than last
   repeated.
 
-**Management** — a list: text, kind, date, delete. Alongside it, the statement
-that every entry is sent to a remote model in every conversation. That sentence
-belongs where the user approves an entry, not at the bottom of settings.
+**Management** — a list: text, kind, date, delete. Alongside it, a statement of
+what actually leaves the machine, which the split makes more precise than "all
+of it": preferences and facts go to the remote model in every conversation;
+episodes and conclusions go only when the assistant asks for them, and their
+count and date span go every time. That sentence belongs where the user approves
+an entry, not at the bottom of settings.
 
 ## Error handling
 
@@ -153,8 +182,18 @@ third directive type uses that mechanism rather than starting its own.
 main. Tests for merge-on-save, refusal when `safeStorage` is unavailable, and
 skipping a corrupted entry while keeping the rest.
 
-**The manifest** gets two tests: memory reaches it, and 50 entries do not push
-it past the context cap (now 50 000 characters, tightened from 500 000).
+**The manifest** gets two tests: preferences and facts reach it, and 50 entries
+do not push it past the context cap (now 50 000 characters, tightened from
+500 000). A third pins the part that keeps the split honest — the manifest
+states how many episodes and conclusions exist and over what dates, even when it
+carries none of their text.
+
+**`recall`** is tested like the other six tools, against the same rules: a range
+with no episodes returns `insufficient` rather than an empty object; a metric
+outside the enum is refused rather than guessed; the result respects the 4096-byte
+cap. Plus the property the whole split rests on — an episode overlapping the
+requested range is always returned, including when it only partly overlaps at
+either edge.
 
 **Privacy gets its own test:** an entry the user never approved appears in no
 outgoing text. That is the load-bearing property of this design, and it needs a
