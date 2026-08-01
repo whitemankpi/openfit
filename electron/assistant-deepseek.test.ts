@@ -115,6 +115,43 @@ describe('DeepSeek adapter', () => {
       .rejects.toSatisfy((error: Error) => !error.message.includes('sk-test-key-12345678'))
   })
 
+  it('carries the first turn exchange into the second turn, without duplicating the system prompt or the manifest', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(reply('You slept 7 hours.'))
+      .mockResolvedValueOnce(reply('The week before you averaged 6.5 hours.'))
+    const service = createDeepSeekService({ apiKey: 'sk-test-key', fetchImpl })
+
+    await service.startTurn({ text: 'How did I sleep last night?', healthContext: '{"a":1}', tools: [] })
+    await service.startTurn({ text: 'and the week before?', healthContext: '{"a":2}', tools: [] })
+
+    const secondBody = JSON.parse((fetchImpl.mock.calls[1] as any)[1].body)
+    const roles = secondBody.messages.map((message: any) => message.role)
+
+    expect(roles.filter((role: string) => role === 'system')).toHaveLength(1)
+    const manifestMessages = secondBody.messages.filter((message: any) =>
+      typeof message.content === 'string' && message.content.startsWith('<OPENFIT_HEALTH_CONTEXT>'))
+    expect(manifestMessages).toHaveLength(1)
+    expect(manifestMessages[0].content).toContain('"a":2')
+
+    expect(secondBody.messages).toContainEqual({ role: 'user', content: 'How did I sleep last night?' })
+    expect(secondBody.messages).toContainEqual({ role: 'assistant', content: 'You slept 7 hours.' })
+    expect(secondBody.messages.at(-1)).toEqual({ role: 'user', content: 'and the week before?' })
+  })
+
+  it('reset() clears the conversation history so the next turn starts fresh', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(reply('You slept 7 hours.'))
+      .mockResolvedValueOnce(reply('No prior context here.'))
+    const service = createDeepSeekService({ apiKey: 'sk-test-key', fetchImpl })
+
+    await service.startTurn({ text: 'How did I sleep last night?', healthContext: '{}', tools: [] })
+    await service.reset()
+    await service.startTurn({ text: 'and the week before?', healthContext: '{}', tools: [] })
+
+    const secondBody = JSON.parse((fetchImpl.mock.calls[1] as any)[1].body)
+    expect(secondBody.messages).not.toContainEqual({ role: 'assistant', content: 'You slept 7 hours.' })
+  })
+
   it('stops after the tool round limit rather than looping forever', async () => {
     const fetchImpl = vi.fn(async () => toolReply('metric_window', { metric: 'steps' }))
     const onToolCall = vi.fn(async () => ({ ok: true, result: { n: 1 } }))

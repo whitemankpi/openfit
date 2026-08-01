@@ -45,6 +45,15 @@ function createDeepSeekService({
 }) {
   let controller = null
   let lastError = null
+  // Codex keeps conversation memory in its own persistent thread; DeepSeek has
+  // no server-side thread at all, so every turn's messages are rebuilt from
+  // scratch here. The system instructions are fixed and sent once per turn
+  // (never accumulated), the health context is always the latest manifest
+  // (replaced, not appended, since a stale manifest would contradict a fresh
+  // one already in history), and only the user/assistant/tool exchanges
+  // accumulate turn over turn so a follow-up question has something to refer
+  // back to.
+  let conversationHistory = []
 
   async function post(messages, tools) {
     const body = JSON.stringify({
@@ -90,10 +99,13 @@ function createDeepSeekService({
   async function startTurn({ text, healthContext, tools = [], onDelta, onToolCall }) {
     controller = new AbortController()
     lastError = null
+    const historySnapshot = conversationHistory
+    const userMessage = { role: 'user', content: text }
     const messages = [
       { role: 'system', content: DEVELOPER_INSTRUCTIONS },
       { role: 'user', content: `<OPENFIT_HEALTH_CONTEXT>\n${healthContext}\n</OPENFIT_HEALTH_CONTEXT>` },
-      { role: 'user', content: text },
+      ...historySnapshot,
+      userMessage,
     ]
 
     try {
@@ -106,6 +118,12 @@ function createDeepSeekService({
         if (!calls.length || !onToolCall || round === maxToolRounds) {
           const answer = String(message.content || '')
           if (answer && onDelta) onDelta(answer)
+          // Everything since the fixed system+manifest prefix (the user
+          // message, and any tool call/result round trip) plus the final
+          // answer becomes next turn's history. The manifest itself is never
+          // retained: the next call rebuilds it fresh from current data.
+          const turnExchange = messages.slice(2 + historySnapshot.length)
+          conversationHistory = [...historySnapshot, ...turnExchange, { role: 'assistant', content: answer }]
           return { text: answer }
         }
 
@@ -137,9 +155,14 @@ function createDeepSeekService({
   return {
     startTurn,
     cancelTurn() { controller?.abort() },
-    reset() { lastError = null },
+    reset() { lastError = null; conversationHistory = [] },
     getStatus() {
-      return { available: Boolean(apiKey), connected: Boolean(apiKey), lastError: lastError ? lastError.message : null }
+      return {
+        available: Boolean(apiKey),
+        connected: Boolean(apiKey),
+        lastError: lastError ? lastError.message : null,
+        lastErrorCode: lastError ? lastError.code : null,
+      }
     },
   }
 }
