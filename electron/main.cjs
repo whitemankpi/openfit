@@ -14,6 +14,7 @@ const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cj
 const { createDeepSeekService } = require('./assistant-deepseek.cjs')
 const assistantConfigLogic = require('./assistant-config.cjs')
 const { createDispatcher, DEFAULT_TIMEOUT_MS } = require('./assistant-dispatch.cjs')
+const { parseToolDirective, stripToolDirective } = require('./assistant-directives.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
@@ -44,41 +45,6 @@ let assistantRequestId = null
 // (which rebuilds assistantProvider) can never leave cancel/reset targeting a
 // freshly-constructed instance instead of the one actually streaming.
 let assistantInFlight = null
-
-// CommonJS twin of parseAssistantToolRequest/stripAssistantToolRequest in
-// src/lib/health-assistant.ts. main.cjs cannot import that TypeScript module
-// (the alternative was duplicating the whole normalisation stack instead of
-// just this directive), so the regex and rejection rules are hand-kept in
-// step with the source of truth. If they ever drift, it would show up as:
-// the renderer's own openfit:tool directive test suite
-// (src/lib/health-assistant.test.ts) staying green while a directive that it
-// accepts (or rejects) behaves the other way here — e.g. a Codex response
-// containing a directive that the renderer would parse gets silently ignored
-// by runCodexToolRounds below, or vice versa. There is no automated guard
-// against that; a change to one regex must be mirrored in the other by hand.
-const TOOL_DIRECTIVE_PATTERN = /\s*<!--\s*openfit:tool\s+(\{[\s\S]*?\})\s*-->\s*/g
-
-function parseToolDirective(text) {
-  TOOL_DIRECTIVE_PATTERN.lastIndex = 0
-  const match = TOOL_DIRECTIVE_PATTERN.exec(String(text || ''))
-  if (!match) return null
-  try {
-    const value = JSON.parse(match[1])
-    const name = typeof value.name === 'string' ? value.name.trim() : ''
-    if (!name) return null
-    if (value.args !== undefined && (typeof value.args !== 'object' || value.args === null || Array.isArray(value.args))) {
-      return null
-    }
-    return { name, args: value.args || {} }
-  } catch {
-    return null
-  }
-}
-
-function stripToolDirective(text) {
-  TOOL_DIRECTIVE_PATTERN.lastIndex = 0
-  return String(text || '').replace(TOOL_DIRECTIVE_PATTERN, '').trim()
-}
 
 const MAX_DIRECTIVE_ROUNDS = 8
 

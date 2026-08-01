@@ -4,13 +4,14 @@ import { PassThrough, Writable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const { createCodexService } = require('./assistant-codex.cjs') as {
+const { createCodexService, __test } = require('./assistant-codex.cjs') as {
   createCodexService: (options?: Record<string, unknown>) => {
     getStatus: () => Record<string, unknown>
     start: () => Promise<Record<string, unknown>>
     startTurn: (input: Record<string, unknown>) => Promise<Record<string, any>>
     dispose: () => Promise<void>
   }
+  __test: { toolDirectiveInstructions: (tools: unknown) => string }
 }
 
 type ProtocolMessage = {
@@ -291,5 +292,78 @@ describe('Codex app-server service', () => {
     completeTurn()
     await turnPromise
     await service.dispose()
+  })
+
+  it('omits the OPENFIT_HEALTH_CONTEXT wrapper when a follow-up turn carries no context', async () => {
+    let turnRequest: ProtocolMessage | undefined
+    const child = new FakeChild((message, current) => {
+      if (message.method === 'initialize') respond(current, message)
+      if (message.method === 'thread/start') respond(current, message, { thread: { id: 'thread-empty' } })
+      if (message.method === 'turn/start') {
+        turnRequest = message
+        respond(current, message, { turn: { id: 'turn-empty', status: 'inProgress' } })
+        queueMicrotask(() => current.send({
+          method: 'turn/completed',
+          params: { threadId: 'thread-empty', turn: { id: 'turn-empty', status: 'completed' } },
+        }))
+      }
+    })
+    const service = createCodexService({ spawn: vi.fn(() => child), resolveBinary: () => '/mock/codex', requestTimeoutMs: 250 })
+
+    await service.startTurn({ text: '<OPENFIT_TOOL_RESULT tool="x">{}</OPENFIT_TOOL_RESULT>', healthContext: '' })
+
+    expect(turnRequest?.params?.input).toEqual([
+      { type: 'text', text: '<OPENFIT_TOOL_RESULT tool="x">{}</OPENFIT_TOOL_RESULT>', text_elements: [] },
+    ])
+
+    await service.dispose()
+  })
+
+  it('teaches the openfit:tool directive and catalog once tools are configured on a turn', async () => {
+    let threadRequest: ProtocolMessage | undefined
+    const child = new FakeChild((message, current) => {
+      if (message.method === 'initialize') respond(current, message)
+      if (message.method === 'thread/start') {
+        threadRequest = message
+        respond(current, message, { thread: { id: 'thread-catalog' } })
+      }
+      if (message.method === 'turn/start') {
+        respond(current, message, { turn: { id: 'turn-catalog', status: 'inProgress' } })
+        queueMicrotask(() => current.send({
+          method: 'turn/completed',
+          params: { threadId: 'thread-catalog', turn: { id: 'turn-catalog', status: 'completed' } },
+        }))
+      }
+    })
+    const service = createCodexService({ spawn: vi.fn(() => child), resolveBinary: () => '/mock/codex', requestTimeoutMs: 250 })
+
+    await service.startTurn({
+      text: 'Come ho dormito?',
+      healthContext: '{}',
+      tools: [{ name: 'metric_window', description: 'Summarise a metric.', schema: { type: 'object', properties: { metric: {}, start: {} }, required: ['metric'] } }],
+    })
+
+    const instructions = String(threadRequest?.params?.developerInstructions || '')
+    expect(instructions).toContain('openfit:tool')
+    expect(instructions).toContain('metric_window - Summarise a metric. (args: metric, start)')
+
+    await service.dispose()
+  })
+})
+
+describe('toolDirectiveInstructions', () => {
+  it('returns an empty string when there are no tools', () => {
+    expect(__test.toolDirectiveInstructions([])).toBe('')
+    expect(__test.toolDirectiveInstructions(undefined)).toBe('')
+  })
+
+  it('lists each tool with its argument names', () => {
+    const text = __test.toolDirectiveInstructions([
+      { name: 'data_coverage', description: 'Report coverage.', schema: { type: 'object', properties: { start: {}, end: {} }, required: [] } },
+      { name: 'metric_window', description: 'Summarise a metric.', schema: { type: 'object', properties: {}, required: [] } },
+    ])
+    expect(text).toContain('data_coverage - Report coverage. (args: start, end)')
+    expect(text).toContain('metric_window - Summarise a metric. (no args)')
+    expect(text).toContain('openfit:tool')
   })
 })

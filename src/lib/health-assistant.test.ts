@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDemoData } from '@/data/demo'
+import { TOOL_DIRECTIVE_CASES } from '../../electron/tool-directive-cases'
 import {
   buildHealthAssistantContext,
   parseAssistantNavigation,
@@ -85,4 +86,17 @@ describe('assistant tool directives', () => {
     expect(parseAssistantToolRequest(text)).toBeNull()
     expect(stripAssistantToolRequest(text)).toBe(text)
   })
+})
+
+// Pinned against electron/assistant-directives.test.ts, which asserts this
+// exact same table (see electron/tool-directive-cases.ts) against
+// parseToolDirective, the CommonJS twin main.cjs actually runs. A change to
+// either parser's rejection rules that isn't mirrored in the other shows up
+// as one of these two suites failing.
+describe('shared parser contract (pinned against electron/assistant-directives.test.ts)', () => {
+  for (const testCase of TOOL_DIRECTIVE_CASES) {
+    it(testCase.description, () => {
+      expect(parseAssistantToolRequest(testCase.text)).toEqual(testCase.expected)
+    })
+  }
 })
