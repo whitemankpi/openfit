@@ -3,7 +3,9 @@ import { createDemoData } from '@/data/demo'
 import {
   buildHealthAssistantContext,
   parseAssistantNavigation,
+  parseAssistantToolRequest,
   stripAssistantNavigation,
+  stripAssistantToolRequest,
   visibleAssistantText,
 } from './health-assistant'
 
@@ -35,5 +37,52 @@ describe('assistant navigation directives', () => {
     expect(parseAssistantNavigation('<!-- openfit:navigate {"page":"admin"} -->')).toBeNull()
     expect(parseAssistantNavigation('<!-- openfit:navigate {"date":"2026-02-31"} -->')).toBeNull()
     expect(parseAssistantNavigation('<!-- openfit:navigate nope -->')).toBeNull()
+  })
+})
+
+describe('assistant tool directives', () => {
+  it('reads a well-formed tool request', () => {
+    const text = 'Let me check.\n<!-- openfit:tool {"name":"metric_window","args":{"metric":"steps"}} -->'
+
+    expect(parseAssistantToolRequest(text)).toEqual({
+      name: 'metric_window',
+      args: { metric: 'steps' },
+    })
+  })
+
+  it('ignores a directive with no name', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"args":{}} -->')).toBeNull()
+  })
+
+  it('ignores malformed JSON rather than throwing', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {not json} -->')).toBeNull()
+  })
+
+  it('defaults missing args to an empty object', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"name":"data_coverage"} -->'))
+      .toEqual({ name: 'data_coverage', args: {} })
+  })
+
+  it('refuses args that are not an object, so the dispatcher is not handed a string', () => {
+    expect(parseAssistantToolRequest('<!-- openfit:tool {"name":"x","args":"steps"} -->')).toBeNull()
+  })
+
+  it('takes only the first directive when the model emits several', () => {
+    const text = '<!-- openfit:tool {"name":"a"} --><!-- openfit:tool {"name":"b"} -->'
+
+    expect(parseAssistantToolRequest(text)?.name).toBe('a')
+  })
+
+  it('strips the directive from the visible text', () => {
+    const text = 'Checking.\n<!-- openfit:tool {"name":"metric_window"} -->'
+
+    expect(stripAssistantToolRequest(text)).toBe('Checking.')
+  })
+
+  it('leaves a navigation directive alone', () => {
+    const text = 'Opening.\n<!-- openfit:navigate {"page":"sleep"} -->'
+
+    expect(parseAssistantToolRequest(text)).toBeNull()
+    expect(stripAssistantToolRequest(text)).toBe(text)
   })
 })

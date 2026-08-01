@@ -227,6 +227,41 @@ export function stripAssistantNavigation(text: string) {
   return text.replace(navigationPattern, '').trim()
 }
 
+export interface AssistantToolRequest {
+  name: string
+  args: Record<string, unknown>
+}
+
+const toolPattern = /\s*<!--\s*openfit:tool\s+(\{[\s\S]*?\})\s*-->\s*/g
+
+/**
+ * Codex cannot be handed tool definitions, so it requests one the same way it
+ * requests navigation. Only the first directive of a turn is honoured: the
+ * dispatcher's budget counts round trips, and a model emitting several at once
+ * has misunderstood the protocol.
+ */
+export function parseAssistantToolRequest(text: string): AssistantToolRequest | null {
+  toolPattern.lastIndex = 0
+  const match = toolPattern.exec(text)
+  if (!match) return null
+  try {
+    const value = JSON.parse(match[1]) as { name?: unknown; args?: unknown }
+    const name = typeof value.name === 'string' ? value.name.trim() : ''
+    if (!name) return null
+    if (value.args !== undefined && (typeof value.args !== 'object' || value.args === null || Array.isArray(value.args))) {
+      return null
+    }
+    return { name, args: (value.args as Record<string, unknown>) ?? {} }
+  } catch {
+    return null
+  }
+}
+
+export function stripAssistantToolRequest(text: string) {
+  toolPattern.lastIndex = 0
+  return text.replace(toolPattern, '').trim()
+}
+
 export function visibleAssistantText(text: string) {
   const marker = text.indexOf('<!--')
   return (marker >= 0 ? text.slice(0, marker) : text).trimEnd()

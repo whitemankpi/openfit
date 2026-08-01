@@ -343,16 +343,24 @@ class CodexService {
       if (active.cancelRequested) throw abortError()
       active.phase = 'starting'
 
+      // A follow-up turn in a tool-directive round trip carries no fresh
+      // context (the manifest already went out on turn one, and the
+      // ephemeral thread keeps it in history) — omit the wrapper entirely
+      // rather than sending an empty <OPENFIT_HEALTH_CONTEXT></...> pair,
+      // which would read as "there is no context" instead of "unchanged".
+      const input = []
+      if (active.context) {
+        input.push({
+          type: 'text',
+          text: `<OPENFIT_HEALTH_CONTEXT>\n${active.context}\n</OPENFIT_HEALTH_CONTEXT>`,
+          text_elements: [],
+        })
+      }
+      input.push({ type: 'text', text: active.text, text_elements: [] })
+
       const response = await this._request('turn/start', {
         threadId: active.threadId,
-        input: [
-          {
-            type: 'text',
-            text: `<OPENFIT_HEALTH_CONTEXT>\n${active.context}\n</OPENFIT_HEALTH_CONTEXT>`,
-            text_elements: [],
-          },
-          { type: 'text', text: active.text, text_elements: [] },
-        ],
+        input,
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'readOnly', networkAccess: false },
       })

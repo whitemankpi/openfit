@@ -45,6 +45,74 @@ let assistantRequestId = null
 // freshly-constructed instance instead of the one actually streaming.
 let assistantInFlight = null
 
+// CommonJS twin of parseAssistantToolRequest/stripAssistantToolRequest in
+// src/lib/health-assistant.ts. main.cjs cannot import that TypeScript module
+// (the alternative was duplicating the whole normalisation stack instead of
+// just this directive), so the regex and rejection rules are hand-kept in
+// step with the source of truth. If they ever drift, it would show up as:
+// the renderer's own openfit:tool directive test suite
+// (src/lib/health-assistant.test.ts) staying green while a directive that it
+// accepts (or rejects) behaves the other way here — e.g. a Codex response
+// containing a directive that the renderer would parse gets silently ignored
+// by runCodexToolRounds below, or vice versa. There is no automated guard
+// against that; a change to one regex must be mirrored in the other by hand.
+const TOOL_DIRECTIVE_PATTERN = /\s*<!--\s*openfit:tool\s+(\{[\s\S]*?\})\s*-->\s*/g
+
+function parseToolDirective(text) {
+  TOOL_DIRECTIVE_PATTERN.lastIndex = 0
+  const match = TOOL_DIRECTIVE_PATTERN.exec(String(text || ''))
+  if (!match) return null
+  try {
+    const value = JSON.parse(match[1])
+    const name = typeof value.name === 'string' ? value.name.trim() : ''
+    if (!name) return null
+    if (value.args !== undefined && (typeof value.args !== 'object' || value.args === null || Array.isArray(value.args))) {
+      return null
+    }
+    return { name, args: value.args || {} }
+  } catch {
+    return null
+  }
+}
+
+function stripToolDirective(text) {
+  TOOL_DIRECTIVE_PATTERN.lastIndex = 0
+  return String(text || '').replace(TOOL_DIRECTIVE_PATTERN, '').trim()
+}
+
+const MAX_DIRECTIVE_ROUNDS = 8
+
+/**
+ * Codex asks for a tool by writing a directive rather than through the
+ * protocol, so a tool call costs a full turn. The dispatcher's budget still
+ * applies; this bound stops a model that keeps asking.
+ */
+async function runCodexToolRounds(assistant, requestId, firstText, dispatcher, onDelta) {
+  let text = firstText
+  for (let round = 0; round < MAX_DIRECTIVE_ROUNDS; round += 1) {
+    const request = parseToolDirective(text)
+    if (!request) return text
+    const outcome = await dispatcher.call(request.name, request.args)
+    if (assistantRequestId !== requestId) return text
+    sendAssistantEvent({ requestId, type: 'tool', name: request.name, ok: outcome.ok })
+    const followUp = await assistant.startTurn({
+      text: `<OPENFIT_TOOL_RESULT tool="${request.name}">\n${JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error })}\n</OPENFIT_TOOL_RESULT>`,
+      healthContext: '',
+      onDelta,
+      onToolCall: async (name, args) => {
+        const toolOutcome = await dispatcher.call(name, args)
+        if (assistantRequestId === requestId) {
+          sendAssistantEvent({ requestId, type: 'tool', name, ok: toolOutcome.ok })
+        }
+        return toolOutcome
+      },
+    })
+    if (assistantRequestId !== requestId) return text
+    text = followUp.text
+  }
+  return text
+}
+
 function atomicWrite(file, content) {
   const temporary = `${file}.${process.pid}.tmp`
   fs.writeFileSync(temporary, content, { mode: 0o600 })
@@ -671,11 +739,20 @@ function registerIpc() {
         }
         return outcome
       },
-    }).then((result) => {
+    }).then(async (result) => {
+      if (assistantRequestId !== requestId) return
+      // Only Codex asks for tools by directive; DeepSeek gets them natively
+      // and will never emit an openfit:tool comment, so this is a no-op there.
+      let text = result.text
+      if (assistant === codexService) {
+        text = await runCodexToolRounds(assistant, requestId, text, dispatcher, (delta) => {
+          if (assistantRequestId === requestId) sendAssistantEvent({ requestId, type: 'delta', delta })
+        })
+      }
       if (assistantRequestId !== requestId) return
       assistantRequestId = null
       assistantInFlight = null
-      sendAssistantEvent({ requestId, type: 'complete', text: result.text })
+      sendAssistantEvent({ requestId, type: 'complete', text: stripToolDirective(text) })
     }).catch((error) => {
       if (assistantRequestId !== requestId) return
       assistantRequestId = null
