@@ -15,6 +15,8 @@ const { createDeepSeekService } = require('./assistant-deepseek.cjs')
 const assistantConfigLogic = require('./assistant-config.cjs')
 const { createDispatcher, DEFAULT_TIMEOUT_MS } = require('./assistant-dispatch.cjs')
 const { parseToolDirective, stripToolDirective } = require('./assistant-directives.cjs')
+const { KNOWN_TOOL_NAMES } = require('./assistant-tool-names.cjs')
+const { validToolCatalog } = require('./assistant-tool-catalog.cjs')
 
 app.commandLine.appendSwitch('lang', 'en-US')
 
@@ -47,11 +49,35 @@ let assistantRequestId = null
 let assistantInFlight = null
 
 const MAX_DIRECTIVE_ROUNDS = 8
+// The manifest that replaced the archive dump is ~1300 characters against the
+// 365-day demo dataset and does not grow with archive length (it reports
+// counts and ranges, not per-day rows). This cap gives a real, longer-running
+// archive room for more metrics, longer localized strings, and JSON escaping
+// — about 38x the demo manifest — while remaining two orders of magnitude
+// below the 500,000-character cap sized for the dump this branch removed.
+const MAX_HEALTH_CONTEXT_CHARS = 50_000
+// Same cap applied to the renderer's requested tool timeout budget: the
+// dispatcher's own timeout (DEFAULT_TIMEOUT_MS) should win a race against a
+// slow renderer and report a specific, useful message. Giving this one more
+// room means a silent renderer is still reclaimed, but never before the
+// dispatcher has already told the model exactly what happened.
+const RENDERER_TOOL_TIMEOUT_MS = DEFAULT_TIMEOUT_MS * 3
 
 /**
  * Codex asks for a tool by writing a directive rather than through the
  * protocol, so a tool call costs a full turn. The dispatcher's budget still
  * applies; this bound stops a model that keeps asking.
+ *
+ * This function, and the `assistant === codexService` identity check that
+ * selects it below, are Codex-specific knowledge living in the layer that is
+ * supposed to be provider-agnostic (see docs/ARCHITECTURE.md's provider
+ * contract). Moving this into assistant-codex.cjs behind the shared
+ * `onToolCall` contract DeepSeek already uses was considered for this same
+ * review pass and deliberately deferred rather than done alongside the fixes
+ * above: assistant-codex.cjs is 877 lines of JSONL protocol handling with no
+ * test coverage of this exact interaction, and this pass already touches the
+ * dispatcher, the manifest, the tool catalog, and the DeepSeek adapter. Queue
+ * this as its own follow-up with its own review, not a rider on this one.
  */
 async function runCodexToolRounds(assistant, requestId, firstText, dispatcher, onDelta) {
   let text = firstText
@@ -559,7 +585,7 @@ function executeToolInRenderer(name, args) {
     const timer = setTimeout(() => {
       pendingToolCalls.delete(callId)
       reject(new Error('The renderer did not answer the tool request in time.'))
-    }, DEFAULT_TIMEOUT_MS)
+    }, RENDERER_TOOL_TIMEOUT_MS)
     pendingToolCalls.set(callId, {
       resolve: (value) => { clearTimeout(timer); resolve(value) },
       reject: (error) => { clearTimeout(timer); reject(error) },
@@ -663,14 +689,22 @@ function registerIpc() {
     return shell.openExternal(url.toString())
   })
   trustedHandle('assistant:get-status', () => {
+    const provider = getAssistantConfig().provider
     const assistant = activeAssistant()
     const status = assistant?.getStatus() || {}
-    const available = status.available ?? Boolean(resolveCodexBinary())
-    const unauthorized = /unauthorized|not logged|sign in|authentication/i.test(String(status.lastError || ''))
+    const available = provider === 'deepseek' ? Boolean(status.available) : (status.available ?? Boolean(resolveCodexBinary()))
+    // Each provider reports "authenticated" its own way: Codex's app-server
+    // gives free-text errors, so an unauthenticated session is inferred from
+    // that text; DeepSeek's adapter instead carries a structured error code,
+    // which is exact where Codex's regex can only guess.
+    const authenticated = provider === 'deepseek'
+      ? Boolean(available && status.lastErrorCode !== 'DEEPSEEK_UNAUTHORIZED')
+      : Boolean(available && !/unauthorized|not logged|sign in|authentication/i.test(String(status.lastError || '')))
     return {
+      provider,
       available,
       connected: Boolean(status.connected),
-      authenticated: Boolean(available && !unauthorized),
+      authenticated,
       version: null,
       ...(status.lastError ? { error: status.lastError } : {}),
     }
@@ -684,17 +718,20 @@ function registerIpc() {
     const message = String(input.message || '').trim()
     const healthContext = String(input.healthContext || '').trim()
     if (!message || message.length > 20_000) throw new Error('The assistant message is empty or too long.')
-    if (!healthContext || healthContext.length > 500_000) throw new Error('The health context is empty or too large.')
+    if (!healthContext || healthContext.length > MAX_HEALTH_CONTEXT_CHARS) throw new Error('The health context is empty or too large.')
 
-    const toolNames = Array.isArray(input.toolNames) ? input.toolNames.map(String) : []
-    const dispatcher = createDispatcher({ allowedNames: toolNames, execute: executeToolInRenderer })
+    // The dispatcher's allowlist is main's own KNOWN_TOOL_NAMES, never the
+    // renderer-supplied input.toolNames: an allowlist sourced from the same
+    // message it is meant to police is not an allowlist.
+    const dispatcher = createDispatcher({ allowedNames: KNOWN_TOOL_NAMES, execute: executeToolInRenderer })
+    const toolCatalog = validToolCatalog(input.tools)
 
     assistantRequestId = requestId
     assistantInFlight = assistant
     void assistant.startTurn({
       text: message,
       healthContext,
-      tools: Array.isArray(input.tools) ? input.tools : [],
+      tools: toolCatalog,
       onDelta: (delta) => {
         if (assistantRequestId === requestId) sendAssistantEvent({ requestId, type: 'delta', delta })
       },
@@ -771,7 +808,7 @@ app.whenReady().then(() => {
   credentialFile = path.join(userData, 'credentials.secure.json')
   cacheFile = path.join(userData, 'health-cache.secure.json')
   assistantConfigFile = path.join(userData, 'assistant-config.secure.json')
-  codexService = createCodexService({ cwd: userData, clientVersion: app.getVersion() })
+  codexService = createCodexService({ cwd: userData, clientVersion: app.getVersion(), maxHealthContextChars: MAX_HEALTH_CONTEXT_CHARS })
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   if (!developmentUrl()) {
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

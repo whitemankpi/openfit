@@ -70,4 +70,4 @@ function createDispatcher({
   }
 }
 
-module.exports = { createDispatcher, DEFAULT_MAX_CALLS, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_RESULT_BYTES }
+module.exports = { createDispatcher, isPlainObject, DEFAULT_MAX_CALLS, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_RESULT_BYTES }

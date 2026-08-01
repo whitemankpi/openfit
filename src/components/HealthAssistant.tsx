@@ -28,10 +28,15 @@ import type {
 } from '@/types'
 
 const unavailableStatus: HealthAssistantStatus = {
+  provider: null,
   available: false,
   connected: false,
   authenticated: false,
   version: null,
+}
+
+function providerName(provider: HealthAssistantStatus['provider']) {
+  return provider === 'deepseek' ? 'DeepSeek' : 'Codex'
 }
 
 function messageText(message: ThreadMessage | undefined) {
@@ -45,9 +50,10 @@ function messageText(message: ThreadMessage | undefined) {
 
 function statusLabel(status: HealthAssistantStatus, hasBridge: boolean) {
   if (!hasBridge) return 'Desktop only'
-  if (!status.available) return 'Codex not found'
-  if (!status.authenticated) return 'Sign in to Codex'
-  return status.connected ? 'Codex connected' : 'Codex ready'
+  const name = providerName(status.provider)
+  if (!status.available) return `${name} not found`
+  if (!status.authenticated) return status.provider === 'deepseek' ? 'Check DeepSeek API key' : 'Sign in to Codex'
+  return status.connected ? `${name} connected` : `${name} ready`
 }
 
 function createQueue() {
@@ -92,12 +98,14 @@ export function HealthAssistant({
   const pageRef = useRef(page)
   const navigateRef = useRef(onNavigate)
   const [status, setStatus] = useState(unavailableStatus)
+  const statusRef = useRef(status)
   const [toolActivity, setToolActivity] = useState<string[]>([])
 
   useEffect(() => { dataRef.current = data }, [data])
   useEffect(() => { historyRef.current = history }, [history])
   useEffect(() => { pageRef.current = page }, [page])
   useEffect(() => { navigateRef.current = onNavigate }, [onNavigate])
+  useEffect(() => { statusRef.current = status }, [status])
 
   useEffect(() => window.healthAssistant?.onToolRequest(async (request) => {
     try {
@@ -124,7 +132,7 @@ export function HealthAssistant({
     } catch (error) {
       setStatus({
         ...unavailableStatus,
-        error: error instanceof Error ? error.message : 'Codex is unavailable.',
+        error: error instanceof Error ? error.message : 'The health assistant is unavailable.',
       })
     }
   }, [])
@@ -190,7 +198,7 @@ export function HealthAssistant({
         const navigation = parseAssistantNavigation(fullText)
         const finalText = stripAssistantNavigation(fullText)
         if (navigation) navigateRef.current(navigation)
-        if (!finalText) throw new Error('Codex completed the turn without a response.')
+        if (!finalText) throw new Error(`${providerName(statusRef.current.provider)} completed the turn without a response.`)
         if (finalText !== lastVisibleText) {
           yield { content: [{ type: 'text', text: finalText }] }
         }
@@ -221,7 +229,7 @@ export function HealthAssistant({
           onClose={() => onOpenChange(false)}
           onStatusRefresh={refreshStatus}
         />
-        <AssistantThread ready={ready} toolActivity={toolActivity} />
+        <AssistantThread ready={ready} toolActivity={toolActivity} status={status} />
       </aside>
       {open && <button className="assistant-scrim" aria-label="Close health assistant" onClick={() => onOpenChange(false)} />}
     </AssistantRuntimeProvider>
@@ -269,7 +277,15 @@ function AssistantHeader({
   )
 }
 
-function AssistantThread({ ready, toolActivity }: { ready: boolean; toolActivity: string[] }) {
+function AssistantThread({
+  ready,
+  toolActivity,
+  status,
+}: {
+  ready: boolean
+  toolActivity: string[]
+  status: HealthAssistantStatus
+}) {
   return (
     <ThreadPrimitive.Root className="assistant-thread">
       <ThreadPrimitive.Viewport className="assistant-viewport">
@@ -306,7 +322,9 @@ function AssistantThread({ ready, toolActivity }: { ready: boolean; toolActivity
               className="assistant-composer-input"
               rows={1}
               disabled={!ready}
-              placeholder={ready ? 'Ask about your health…' : 'Connect Codex Desktop to chat'}
+              placeholder={ready
+                ? 'Ask about your health…'
+                : status.provider === 'deepseek' ? 'Add a DeepSeek API key to chat' : 'Connect Codex Desktop to chat'}
               aria-label="Message health assistant"
             />
             <AuiIf condition={(state) => !state.thread.isRunning}>

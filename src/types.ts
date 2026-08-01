@@ -300,6 +300,8 @@ export interface AssistantConfig {
 }
 
 export interface HealthAssistantStatus {
+  /** Which provider this status describes, so the UI never names the wrong one. Null before the first status fetch. */
+  provider: AssistantProvider | null
   available: boolean
   connected: boolean
   authenticated: boolean
