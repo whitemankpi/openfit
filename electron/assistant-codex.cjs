@@ -158,6 +158,7 @@ function normalizeTurnInput(input, maxContextChars) {
     onDelta: typeof input.onDelta === 'function' ? input.onDelta : null,
     onComplete: typeof input.onComplete === 'function' ? input.onComplete : null,
     onError: typeof input.onError === 'function' ? input.onError : null,
+    onToolCall: typeof input.onToolCall === 'function' ? input.onToolCall : null,
     signal: input.signal || null,
   }
 }
@@ -551,6 +552,10 @@ class CodexService {
 
   _handleServerRequest(message) {
     const method = message.method
+    if (method === 'item/tool/call') {
+      void this._handleToolCall(message)
+      return
+    }
     let result
     switch (method) {
       case 'item/commandExecution/requestApproval':
@@ -567,12 +572,6 @@ class CodexService {
       case 'item/tool/requestUserInput':
         result = { answers: {} }
         break
-      case 'item/tool/call':
-        result = {
-          contentItems: [{ type: 'inputText', text: 'Tool calls are disabled in the OpenFit health assistant.' }],
-          success: false,
-        }
-        break
       case 'mcpServer/elicitation/request':
         result = { action: 'decline', content: null, _meta: null }
         break
@@ -581,6 +580,30 @@ class CodexService {
         return
     }
     this._write({ id: message.id, result })
+  }
+
+  async _handleToolCall(message) {
+    const handler = this._active?.onToolCall
+    let result
+    if (!handler) {
+      result = {
+        contentItems: [{ type: 'inputText', text: 'Tool calls are not configured for this turn.' }],
+        success: false,
+      }
+    } else {
+      const name = String(message.params?.name || '')
+      const args = message.params?.arguments && typeof message.params.arguments === 'object'
+        ? message.params.arguments
+        : {}
+      const outcome = await handler(name, args)
+      result = {
+        contentItems: [{ type: 'inputText', text: JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error }) }],
+        success: Boolean(outcome.ok),
+      }
+    }
+    try {
+      this._write({ id: message.id, result })
+    } catch { /* connection gone; best effort */ }
   }
 
   _handleNotification(method, params) {

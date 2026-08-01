@@ -66,6 +66,32 @@ const respond = (child: FakeChild, request: ProtocolMessage, result: Record<stri
   queueMicrotask(() => child.send({ id: request.id, result }))
 }
 
+/**
+ * Builds a service whose thread/start and turn/start handshakes are already
+ * stubbed out, so a test can focus on driving `_handleServerRequest` (via
+ * `emit`) and inspecting what the service writes back to the app-server
+ * (via `sent`, i.e. the fake child's captured stdin messages).
+ */
+function createStubbedService(options: { onToolCall?: (name: string, args: Record<string, unknown>) => Promise<any> } = {}) {
+  const child = new FakeChild((message, current) => {
+    if (message.method === 'initialize') respond(current, message)
+    if (message.method === 'thread/start') respond(current, message, { thread: { id: 'thread-tools' } })
+    if (message.method === 'turn/start') respond(current, message, { turn: { id: 'turn-tools', status: 'inProgress' } })
+  })
+  const service = createCodexService({
+    spawn: vi.fn(() => child),
+    resolveBinary: () => '/mock/codex',
+    requestTimeoutMs: 250,
+    turnTimeoutMs: 1_000,
+  })
+  return {
+    service,
+    sent: child.messages,
+    emit: (message: ProtocolMessage) => child.send(message),
+    completeTurn: () => child.send({ method: 'turn/completed', params: { threadId: 'thread-tools', turn: { id: 'turn-tools', status: 'completed' } } }),
+  }
+}
+
 describe('Codex app-server service', () => {
   it('starts lazily, performs the handshake, and creates one locked-down persistent thread', async () => {
     const child = new FakeChild((message, current) => {
@@ -206,5 +232,44 @@ describe('Codex app-server service', () => {
     expect(caught.message).not.toContain('super-secret')
     expect(caught.message).not.toContain('sk-error-secret')
     expect(service.getStatus()).toMatchObject({ state: 'error', connected: false })
+  })
+
+  it('routes a tool call to the handler instead of refusing it', async () => {
+    const onToolCall = vi.fn(async () => ({ ok: true, result: { n: 30 } }))
+    const { service, sent, emit, completeTurn } = createStubbedService({ onToolCall })
+
+    const turnPromise = service.startTurn({ text: 'x', healthContext: '{}', onToolCall })
+    emit({ id: 7, method: 'item/tool/call', params: { name: 'metric_window', arguments: { metric: 'steps' } } })
+    await vi.waitFor(() => expect(onToolCall).toHaveBeenCalledWith('metric_window', { metric: 'steps' }))
+
+    const reply = await vi.waitFor(() => {
+      const found = sent.find((message) => message.id === 7)
+      expect(found).toBeTruthy()
+      return found
+    })
+    expect(reply!.result?.success).toBe(true)
+    expect(reply!.result?.contentItems).toEqual([{ type: 'inputText', text: JSON.stringify({ n: 30 }) }])
+
+    completeTurn()
+    await turnPromise
+    await service.dispose()
+  })
+
+  it('refuses a tool call when no handler is configured', async () => {
+    const { service, sent, emit, completeTurn } = createStubbedService()
+
+    const turnPromise = service.startTurn({ text: 'x', healthContext: '{}' })
+    emit({ id: 8, method: 'item/tool/call', params: { name: 'metric_window', arguments: {} } })
+
+    const reply = await vi.waitFor(() => {
+      const found = sent.find((message) => message.id === 8)
+      expect(found).toBeTruthy()
+      return found
+    })
+    expect(reply!.result?.success).toBe(false)
+
+    completeTurn()
+    await turnPromise
+    await service.dispose()
   })
 })
