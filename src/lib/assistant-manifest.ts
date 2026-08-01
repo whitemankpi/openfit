@@ -27,7 +27,7 @@ export function buildAssistantManifest(data: DashboardData, history: History, pa
       selectedDate: data.selectedDate,
       navigablePages: ['today', 'activity', 'health', 'sleep', 'body', 'devices'],
     },
-    profile: { displayName: data.profile.displayName, timezone: data.profile.timezone },
+    profile: { timezone: data.profile.timezone },
     units: {
       heartRate: 'bpm', hrv: 'ms', breathingRate: 'breaths/min', spo2: '%',
       temperature: '°C', weight: 'kg', distance: 'km', energy: 'kcal', duration: 'minutes',
@@ -52,6 +52,14 @@ export function buildAssistantManifest(data: DashboardData, history: History, pa
       load: { value: scores.load.value, confidence: scores.load.confidence },
       sleepQuality: { value: scores.sleepQuality.value, confidence: scores.sleepQuality.confidence },
     },
-    syncCoverage: data.sync,
+    // Counts and error keys only: error messages are verbatim upstream
+    // Google/Fitbit text OpenFit does not control or sanitize, so they never
+    // go into a payload sent to a model.
+    syncCoverage: {
+      endpointCount: data.sync.endpointCount,
+      successCount: data.sync.successCount,
+      errorKeys: data.sync.errors.map((error) => error.key),
+      rateLimitRemaining: data.sync.rateLimitRemaining,
+    },
   })
 }

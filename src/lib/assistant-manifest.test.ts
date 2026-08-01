@@ -39,4 +39,35 @@ describe('buildAssistantManifest', () => {
 
     expect(manifest.archive.metrics).not.toContain('cardioScore')
   })
+
+  it('never sends the display name, only the timezone', () => {
+    const data = createDemoData(SELECTED)
+    data.profile.displayName = 'Anton Bilyy'
+    const manifest = buildAssistantManifest(data, createDemoHistory(SELECTED), 'today')
+
+    expect(manifest).not.toContain('Anton Bilyy')
+    const parsed = JSON.parse(manifest)
+    expect(parsed.profile.displayName).toBeUndefined()
+    expect(parsed.profile.timezone).toBe(data.profile.timezone)
+  })
+
+  it('reduces sync coverage to counts and error keys, never raw upstream error messages', () => {
+    const data = createDemoData(SELECTED)
+    data.sync = {
+      endpointCount: 10,
+      successCount: 8,
+      errors: [{ key: 'ecgRaw', message: 'Upstream said: quota exceeded for project 12345' }],
+      rateLimitRemaining: 42,
+    }
+    const manifest = buildAssistantManifest(data, createDemoHistory(SELECTED), 'today')
+
+    expect(manifest).not.toContain('quota exceeded')
+    const parsed = JSON.parse(manifest)
+    expect(parsed.syncCoverage).toEqual({
+      endpointCount: 10,
+      successCount: 8,
+      errorKeys: ['ecgRaw'],
+      rateLimitRemaining: 42,
+    })
+  })
 })
