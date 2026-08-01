@@ -43,6 +43,7 @@ describe('shared parser contract (pinned against src/lib/health-assistant.test.t
   for (const testCase of TOOL_DIRECTIVE_CASES) {
     it(testCase.description, () => {
       expect(parseToolDirective(testCase.text)).toEqual(testCase.expected)
+      expect(stripToolDirective(testCase.text)).toBe(testCase.expectedStripped)
     })
   }
 })

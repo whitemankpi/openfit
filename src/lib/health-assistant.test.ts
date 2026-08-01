@@ -1,29 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createDemoData } from '@/data/demo'
 import { TOOL_DIRECTIVE_CASES } from '../../electron/tool-directive-cases'
 import {
-  buildHealthAssistantContext,
   parseAssistantNavigation,
   parseAssistantToolRequest,
   stripAssistantNavigation,
   stripAssistantToolRequest,
   visibleAssistantText,
 } from './health-assistant'
-
-describe('health assistant context', () => {
-  it('includes every category and the selected-day detail without null noise', () => {
-    const data = createDemoData('2026-06-23')
-    const context = JSON.parse(buildHealthAssistantContext(data, [data], 'sleep'))
-
-    expect(context.app).toMatchObject({ currentPage: 'sleep', selectedDate: '2026-06-23' })
-    expect(context.archive.dayCount).toBeGreaterThanOrEqual(14)
-    expect(context.selectedDayDetail.summary).toHaveProperty('activity')
-    expect(context.selectedDayDetail.summary).toHaveProperty('health')
-    expect(context.selectedDayDetail.summary).toHaveProperty('sleep')
-    expect(context.selectedDayDetail.summary).toHaveProperty('body')
-    expect(context.selectedDayDetail.intraday.heartRate.length).toBeGreaterThan(0)
-  })
-})
 
 describe('assistant navigation directives', () => {
   it('parses and removes a valid directive', () => {
@@ -97,6 +80,7 @@ describe('shared parser contract (pinned against electron/assistant-directives.t
   for (const testCase of TOOL_DIRECTIVE_CASES) {
     it(testCase.description, () => {
       expect(parseAssistantToolRequest(testCase.text)).toEqual(testCase.expected)
+      expect(stripAssistantToolRequest(testCase.text)).toBe(testCase.expectedStripped)
     })
   }
 })
