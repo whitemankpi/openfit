@@ -272,4 +272,24 @@ describe('Codex app-server service', () => {
     await turnPromise
     await service.dispose()
   })
+
+  it('answers with a failure result instead of crashing when the handler rejects', async () => {
+    const onToolCall = vi.fn(async () => { throw new Error('boom') })
+    const { service, sent, emit, completeTurn } = createStubbedService({ onToolCall })
+
+    const turnPromise = service.startTurn({ text: 'x', healthContext: '{}', onToolCall })
+    emit({ id: 9, method: 'item/tool/call', params: { name: 'metric_window', arguments: {} } })
+    await vi.waitFor(() => expect(onToolCall).toHaveBeenCalled())
+
+    const reply = await vi.waitFor(() => {
+      const found = sent.find((message) => message.id === 9)
+      expect(found).toBeTruthy()
+      return found
+    })
+    expect(reply!.result?.success).toBe(false)
+
+    completeTurn()
+    await turnPromise
+    await service.dispose()
+  })
 })

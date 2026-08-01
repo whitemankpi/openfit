@@ -595,7 +595,12 @@ class CodexService {
       const args = message.params?.arguments && typeof message.params.arguments === 'object'
         ? message.params.arguments
         : {}
-      const outcome = await handler(name, args)
+      let outcome
+      try {
+        outcome = await handler(name, args)
+      } catch (error) {
+        outcome = { ok: false, error: sanitizeMessage(error?.message, 'The tool handler failed.') }
+      }
       result = {
         contentItems: [{ type: 'inputText', text: JSON.stringify(outcome.ok ? outcome.result : { error: outcome.error }) }],
         success: Boolean(outcome.ok),
