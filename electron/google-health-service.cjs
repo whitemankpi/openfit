@@ -482,7 +482,7 @@ async function syncGoogleHealthData(accessToken, selectedDate, onProgress = () =
     }
   }))
 
-  if (errors.some((error) => error.status === 401)) {
+  if (errors.some((error) => error.status === 401 && error.key !== 'googleFitSteps')) {
     throw new Error('The Google Health authorization is no longer valid. Reconnect the account.')
   }
 

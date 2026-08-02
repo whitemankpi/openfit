@@ -86,6 +86,9 @@ const defaultStatus: FitbitAuthStatus = {
   lastSyncAt: null,
   provider: 'google-health',
   googleFitAuthorized: false,
+  googleFitStatus: 'not-connected',
+  googleFitError: null,
+  googleFitCheckedAt: null,
 }
 
 interface ToastState {
@@ -812,6 +815,13 @@ function SettingsDialog({
 
   const secretRequired = provider === 'google-health'
   const providerLabel = provider === 'google-health' ? 'Google Health' : 'Fitbit legacy'
+  const googleFitMessage = status.googleFitStatus === 'active'
+    ? `Active${status.googleFitCheckedAt ? ` · checked ${relativeTime(status.googleFitCheckedAt)}` : ''}.`
+    : status.googleFitStatus === 'reconnect-required'
+      ? `${status.googleFitError || 'Authorization expired or was revoked.'} Reauthorize below.`
+      : status.googleFitStatus === 'error'
+        ? `${status.googleFitError || 'Temporarily unavailable.'} Try syncing again before reauthorizing.`
+        : 'Not connected. Authorize separately below.'
   const savedSecretMatchesProvider = status.hasClientSecret && status.provider === provider
   const canSave = status.storageEncrypted
     && clientId.trim().length > 2
@@ -868,7 +878,13 @@ function SettingsDialog({
         {status.connected && !editing ? (
           <div className="connected-state">
             <div className="connection-check"><CheckIcon /></div>
-            <div><h3>Sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.{status.provider === 'google-health' ? status.googleFitAuthorized ? ' Google Fit step access is active.' : ' Authorize Google Fit steps separately below.' : ''}</p></div>
+            <div><h3>{providerLabel} sync active</h3><p>Last updated {relativeTime(status.lastSyncAt)}.</p></div>
+            {status.provider === 'google-health' && (
+              <div className={cn('google-fit-connection', status.googleFitStatus !== 'active' && status.googleFitStatus !== 'not-connected' && 'is-warning')} role={status.googleFitStatus === 'reconnect-required' ? 'alert' : 'status'}>
+                <ActivityIcon />
+                <div><strong>Google Fit steps · {status.googleFitStatus === 'active' ? 'Active' : status.googleFitStatus === 'reconnect-required' ? 'Reconnect required' : status.googleFitStatus === 'error' ? 'Temporary error' : 'Not connected'}</strong><span>{googleFitMessage}</span></div>
+              </div>
+            )}
             <div className="connected-actions">
               <Button onClick={onConnect} disabled={connecting}>{connecting ? <LoaderCircle className="spin" /> : <RefreshCw />} Reauthorize Google Health</Button>
               {status.provider === 'google-health' && (

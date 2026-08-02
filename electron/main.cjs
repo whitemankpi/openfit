@@ -13,6 +13,7 @@ const healthCache = require('./health-cache.cjs')
 const { createCodexService, resolveCodexBinary } = require('./assistant-codex.cjs')
 const { createDeepSeekService } = require('./assistant-deepseek.cjs')
 const assistantConfigLogic = require('./assistant-config.cjs')
+const { activeGoogleFitConnection, failedGoogleFitConnection, publicGoogleFitStatus } = require('./google-fit-status.cjs')
 const { createDispatcher, DEFAULT_TIMEOUT_MS } = require('./assistant-dispatch.cjs')
 const { parseToolDirective, stripToolDirective } = require('./assistant-directives.cjs')
 const { KNOWN_TOOL_NAMES } = require('./assistant-tool-names.cjs')
@@ -199,8 +200,7 @@ function publicStatus() {
     storageEncrypted: storageEncryptionAvailable(),
     lastSyncAt: credentials.lastSyncAt || null,
     provider,
-    googleFitAuthorized: provider === 'google-health'
-      && String(credentials.googleFitToken?.scope || '').split(/\s+/).includes('https://www.googleapis.com/auth/fitness.activity.read'),
+    ...publicGoogleFitStatus(provider, credentials),
   }
 }
 
@@ -291,7 +291,7 @@ async function startOAuthFlow(purpose = 'health') {
           throw new Error('Google returned a combined token. Revoke OpenFit access in your Google Account and try again.')
         }
         saveCredentials(purpose === 'google-fit'
-          ? { ...credentials, googleFitToken: token, lastSyncAt: null }
+          ? { ...credentials, googleFitToken: token, googleFitConnection: activeGoogleFitConnection(), lastSyncAt: null }
           : { ...credentials, token, lastSyncAt: null })
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
         response.end(oauthPage(true, service.provider === 'google-health' ? 'Google Health is ready.' : 'Fitbit legacy is ready.'))
@@ -348,7 +348,7 @@ async function validGoogleFitToken(credentials) {
   if (!credentials.googleFitToken) return credentials
   if (Number(credentials.googleFitToken.expiresAt || 0) > Date.now() + 90_000 && credentials.googleFitToken.access_token) return credentials
   const googleFitToken = await googleHealth.refreshAccessToken(credentials.config, credentials.googleFitToken)
-  const updated = { ...credentials, googleFitToken }
+  const updated = { ...credentials, googleFitToken, googleFitConnection: activeGoogleFitConnection() }
   saveCredentials(updated)
   return updated
 }
@@ -370,12 +370,21 @@ async function syncData(date) {
       credentials = await validGoogleFitToken(credentials)
       googleFitAccessToken = credentials.googleFitToken.access_token
     } catch (error) {
+      credentials = { ...credentials, googleFitConnection: failedGoogleFitConnection(error) }
+      saveCredentials(credentials)
       console.warn('Google Fit token refresh failed; syncing Google Health without Fit steps.', error)
     }
   }
   const payload = await service.syncData(credentials.token.access_token, date, (progress) => {
     mainWindow?.webContents.send('fitbit:sync-progress', { ...progress, date })
   }, googleFitAccessToken)
+  if (googleFitAccessToken) {
+    const googleFitError = Array.isArray(payload.errors) ? payload.errors.find((error) => error?.key === 'googleFitSteps') : null
+    const googleFitSucceeded = Array.isArray(payload.requestStats?.successfulKeys) && payload.requestStats.successfulKeys.includes('googleFitSteps')
+    if (googleFitError || googleFitSucceeded) {
+      credentials = { ...credentials, googleFitConnection: googleFitError ? failedGoogleFitConnection(googleFitError) : activeGoogleFitConnection() }
+    }
+  }
   const total = Number(payload.requestStats?.total || 0)
   const succeeded = Number(payload.requestStats?.succeeded || 0)
   const successfulKeys = Array.isArray(payload.requestStats?.successfulKeys) ? payload.requestStats.successfulKeys : []
@@ -609,7 +618,7 @@ function registerIpc() {
     const config = validateConfig(input || {}, credentials.config)
     const oauthIdentityChanged = ['provider', 'clientId', 'clientSecret', 'redirectUri']
       .some((key) => String(credentials.config?.[key] || '') !== String(config[key] || ''))
-    saveCredentials({ ...credentials, config, token: oauthIdentityChanged ? null : credentials.token, googleFitToken: oauthIdentityChanged ? null : credentials.googleFitToken, lastSyncAt: oauthIdentityChanged ? null : credentials.lastSyncAt })
+    saveCredentials({ ...credentials, config, token: oauthIdentityChanged ? null : credentials.token, googleFitToken: oauthIdentityChanged ? null : credentials.googleFitToken, googleFitConnection: oauthIdentityChanged ? null : credentials.googleFitConnection, lastSyncAt: oauthIdentityChanged ? null : credentials.lastSyncAt })
     if (oauthIdentityChanged) deleteIfPresent(cacheFile)
     return publicStatus()
   })
@@ -635,7 +644,7 @@ function registerIpc() {
       console.warn('Google Fit token revocation failed; local credentials will still be deleted.', error)
     }
     try {
-      saveCredentials({ ...credentials, token: null, googleFitToken: null, lastSyncAt: null })
+      saveCredentials({ ...credentials, token: null, googleFitToken: null, googleFitConnection: null, lastSyncAt: null })
     } catch {
       deleteIfPresent(credentialFile)
     }

@@ -1317,7 +1317,13 @@ export function DevicesView({ data, status, historyDays }: ViewProps) {
 
       {data.sync.errors.length > 0 && <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{data.sync.errors.length} sources returned no data for the selected period. Available measurements remain visible.</p></div>}
       {!isDemo && status.provider === 'google-health' && (
-        <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{status.googleFitAuthorized ? 'Google Fit step access is authorized; Google Fit steps take priority when available.' : 'Open settings and authorize Google Fit steps separately.'}</p></div>
+        <div className="sync-note"><InfoIcon aria-hidden="true" /><p>{status.googleFitStatus === 'active'
+          ? 'Google Fit step access is active; Google Fit steps take priority when available.'
+          : status.googleFitStatus === 'reconnect-required'
+            ? 'Google Fit step authorization expired or was revoked. Open settings to reconnect it.'
+            : status.googleFitStatus === 'error'
+              ? 'Google Fit steps are temporarily unavailable. OpenFit is continuing with Google Health data.'
+              : 'Open settings and authorize Google Fit steps separately.'}</p></div>
       )}
     </div>
   )

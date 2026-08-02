@@ -247,6 +247,9 @@ export interface FitbitAuthStatus {
   lastSyncAt: string | null
   provider: HealthProvider
   googleFitAuthorized: boolean
+  googleFitStatus: 'not-connected' | 'active' | 'reconnect-required' | 'error'
+  googleFitError: string | null
+  googleFitCheckedAt: string | null
 }
 
 export interface FitbitConfigInput {
