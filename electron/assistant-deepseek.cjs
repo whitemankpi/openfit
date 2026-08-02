@@ -2,6 +2,8 @@
 
 // Fixed on purpose. A configurable endpoint in an application holding a year of
 // health history is an exfiltration channel that needs only an address swapped.
+const { pruneExchange, applyHistoryCap } = require('./assistant-history.cjs')
+
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 const DEFAULT_MODEL = 'deepseek-chat'
 const DEFAULT_MAX_TOOL_ROUNDS = 8
@@ -99,12 +101,18 @@ function createDeepSeekService({
   async function startTurn({ text, healthContext, tools = [], onDelta, onToolCall }) {
     controller = new AbortController()
     lastError = null
-    const historySnapshot = conversationHistory
+    const capped = applyHistoryCap(conversationHistory)
     const userMessage = { role: 'user', content: text }
     const messages = [
       { role: 'system', content: DEVELOPER_INSTRUCTIONS },
       { role: 'user', content: `<OPENFIT_HEALTH_CONTEXT>\n${healthContext}\n</OPENFIT_HEALTH_CONTEXT>` },
-      ...historySnapshot,
+      // Recomputed per request, never stored: the history itself holds only
+      // real exchanges. A system role rather than text glued to a user turn,
+      // so it cannot be mistaken for something the user said.
+      ...(capped.trimmed
+        ? [{ role: 'system', content: 'Earlier turns in this conversation were omitted to stay within the context limit.' }]
+        : []),
+      ...capped.history,
       userMessage,
     ]
 
@@ -118,12 +126,16 @@ function createDeepSeekService({
         if (!calls.length || !onToolCall || round === maxToolRounds) {
           const answer = String(message.content || '')
           if (answer && onDelta) onDelta(answer)
-          // Everything since the fixed system+manifest prefix (the user
-          // message, and any tool call/result round trip) plus the final
-          // answer becomes next turn's history. The manifest itself is never
-          // retained: the next call rebuilds it fresh from current data.
-          const turnExchange = messages.slice(2 + historySnapshot.length)
-          conversationHistory = [...historySnapshot, ...turnExchange, { role: 'assistant', content: answer }]
+          // Only the question text and the final answer text are retained —
+          // tool calls/results are resolved and restated in the answer, so
+          // keeping them would just bloat every later request. Retention
+          // starts from capped.history (not the pre-cap snapshot), so a
+          // history already dropped by the cap cannot come back.
+          const turnExchange = messages.slice(messages.indexOf(userMessage))
+          conversationHistory = [
+            ...capped.history,
+            ...pruneExchange([...turnExchange, { role: 'assistant', content: answer }]),
+          ]
           return { text: answer }
         }
 

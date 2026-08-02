@@ -161,4 +161,59 @@ describe('DeepSeek adapter', () => {
 
     expect(fetchImpl.mock.calls.length).toBeLessThanOrEqual(4)
   })
+
+  it('keeps only the question and the answer, not the tool traffic', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(toolReply('metric_window', { metric: 'steps' }))
+      .mockResolvedValueOnce(reply('You averaged 8 000 steps.'))
+      .mockResolvedValueOnce(reply('Second answer.'))
+    const onToolCall = vi.fn(async () => ({ ok: true, result: { median: 8000, n: 30 } }))
+    const service = createDeepSeekService({ apiKey: 'sk-test-key', fetchImpl })
+
+    await service.startTurn({ text: 'steps?', healthContext: '{}', tools: [], onToolCall })
+    await service.startTurn({ text: 'and sleep?', healthContext: '{}', tools: [], onToolCall })
+
+    const body = JSON.parse((fetchImpl.mock.calls[2] as any)[1].body)
+    const roles = body.messages.map((message: any) => message.role)
+
+    expect(roles).not.toContain('tool')
+    expect(body.messages.some((m: any) => Array.isArray(m.tool_calls))).toBe(false)
+    expect(body.messages.map((m: any) => m.content)).toEqual(
+      expect.arrayContaining(['steps?', 'You averaged 8 000 steps.', 'and sleep?']),
+    )
+  })
+
+  it('declares a trimmed history with a system notice after the manifest', async () => {
+    const fetchImpl = vi.fn(async () => reply('ok'))
+    const service = createDeepSeekService({ apiKey: 'sk-test-key', fetchImpl })
+
+    // Enough turns to pass the 20-exchange cap.
+    for (let turn = 0; turn < 22; turn += 1) {
+      await service.startTurn({ text: `question ${turn}`, healthContext: '{}', tools: [] })
+    }
+
+    const body = JSON.parse((fetchImpl.mock.calls.at(-1) as any)[1].body)
+    const notice = body.messages[2]
+
+    expect(body.messages[0].role).toBe('system')
+    expect(body.messages[1].content).toContain('OPENFIT_HEALTH_CONTEXT')
+    expect(notice.role).toBe('system')
+    expect(notice.content).toMatch(/earlier turns/i)
+    // 20 capped history exchanges + the current turn's own user message + the
+    // manifest message (also role 'user') = 22. The brief's worked example
+    // (21) counts only the history-plus-current-turn user messages and omits
+    // that the manifest itself carries role 'user'.
+    expect(body.messages.filter((m: any) => m.role === 'user')).toHaveLength(22)
+  })
+
+  it('adds no notice while the history is short', async () => {
+    const fetchImpl = vi.fn(async () => reply('ok'))
+    const service = createDeepSeekService({ apiKey: 'sk-test-key', fetchImpl })
+
+    await service.startTurn({ text: 'one', healthContext: '{}', tools: [] })
+    await service.startTurn({ text: 'two', healthContext: '{}', tools: [] })
+
+    const body = JSON.parse((fetchImpl.mock.calls.at(-1) as any)[1].body)
+    expect(body.messages.filter((m: any) => m.role === 'system')).toHaveLength(1)
+  })
 })
