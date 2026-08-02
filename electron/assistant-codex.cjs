@@ -408,13 +408,13 @@ class CodexService {
       const input = []
       const fingerprint = contextFingerprint(active.context)
       const alreadySent = fingerprint !== null && fingerprint === this._lastContextHash
-      if (active.context && !alreadySent) {
+      const sendsContext = Boolean(active.context) && !alreadySent
+      if (sendsContext) {
         input.push({
           type: 'text',
           text: `<OPENFIT_HEALTH_CONTEXT>\n${active.context}\n</OPENFIT_HEALTH_CONTEXT>`,
           text_elements: [],
         })
-        this._lastContextHash = fingerprint
       }
       input.push({ type: 'text', text: active.text, text_elements: [] })
 
@@ -426,6 +426,12 @@ class CodexService {
       })
 
       if (this._active !== active) return
+
+      // Only now is the manifest actually on the thread. Recording the hash
+      // before this point would make a rejected turn/start (which leaves the
+      // thread alive) silently strip the context from every later turn.
+      if (sendsContext) this._lastContextHash = fingerprint
+
       const turnId = response?.turn?.id
       if (!turnId) throw new CodexServiceError('Codex app-server returned an invalid turn.', 'CODEX_PROTOCOL_ERROR')
       if (active.turnId && active.turnId !== turnId) {

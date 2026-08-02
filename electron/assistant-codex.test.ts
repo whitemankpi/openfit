@@ -87,10 +87,12 @@ function createStubbedService(options: { onToolCall?: (name: string, args: Recor
     if (message.method === 'thread/start') respond(child, message, { thread: { id: 'thread-tools' } })
     if (message.method === 'turn/start') respond(child, message, { turn: { id: 'turn-tools', status: 'inProgress' } })
   })
-  // `current` must already hold the instance the *next* spawn() call will
-  // return, since a turn's `emit`/`completeTurn` can run before the service
-  // actually invokes spawn() (spawn happens after an async hop, but tests
-  // call emit() synchronously right after startTurn()).
+  // `pending` is the instance the next spawn() call will hand out; `current`
+  // is the one it handed out last, and is what `emit`/`completeTurn` drive.
+  // Before the first spawn the two are the same child, so a test that calls
+  // emit() synchronously right after startTurn() — i.e. before the service
+  // has reached spawn(), which happens after an async hop — still targets the
+  // child the service is about to receive.
   let pending = makeChild()
   let current = pending
   const spawn = vi.fn(() => {
@@ -287,6 +289,48 @@ describe('Codex app-server service', () => {
     expect(turn!.params!.input).toHaveLength(2)
     await completeTurn()
     await second
+  })
+
+  it('sends the manifest again after a turn/start that never reached the model', async () => {
+    const sent: ProtocolMessage[] = []
+    let turnStarts = 0
+    const child = new FakeChild((message, current) => {
+      sent.push(message)
+      if (message.method === 'initialize') respond(current, message)
+      if (message.method === 'thread/start') respond(current, message, { thread: { id: 'thread-retry' } })
+      if (message.method === 'turn/start') {
+        turnStarts += 1
+        if (turnStarts === 1) {
+          // Server-side rejection: the thread survives, but the model never
+          // saw the manifest.
+          queueMicrotask(() => current.send({ id: message.id, error: { message: 'server busy' } }))
+          return
+        }
+        respond(current, message, { turn: { id: 'turn-retry', status: 'inProgress' } })
+        queueMicrotask(() => current.send({
+          method: 'turn/completed',
+          params: { threadId: 'thread-retry', turn: { id: 'turn-retry', status: 'completed' } },
+        }))
+      }
+    })
+    const service = createCodexService({
+      spawn: vi.fn(() => child),
+      resolveBinary: () => '/mock/codex',
+      requestTimeoutMs: 250,
+      turnTimeoutMs: 1_000,
+    })
+
+    await expect(service.startTurn({ text: 'x', healthContext: '{"a":1}' })).rejects.toMatchObject({ code: 'CODEX_RPC_ERROR' })
+    expect(service.getStatus()).toMatchObject({ threadId: 'thread-retry' })
+
+    sent.length = 0
+    await service.startTurn({ text: 'y', healthContext: '{"a":1}' })
+
+    const turn = sent.find((message) => message.method === 'turn/start')
+    expect(turn!.params!.input).toHaveLength(2)
+    expect(turn!.params!.input[0].text).toContain('{"a":1}')
+
+    await service.dispose()
   })
 
   it('reports a missing Codex binary without spawning', async () => {
