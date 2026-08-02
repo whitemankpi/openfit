@@ -9,6 +9,7 @@ const { createCodexService, __test } = require('./assistant-codex.cjs') as {
     getStatus: () => Record<string, unknown>
     start: () => Promise<Record<string, unknown>>
     startTurn: (input: Record<string, unknown>) => Promise<Record<string, any>>
+    reset: () => Promise<Record<string, unknown>>
     dispose: () => Promise<void>
   }
   __test: { toolDirectiveInstructions: (tools: unknown) => string }
@@ -74,22 +75,40 @@ const respond = (child: FakeChild, request: ProtocolMessage, result: Record<stri
  * (via `sent`, i.e. the fake child's captured stdin messages).
  */
 function createStubbedService(options: { onToolCall?: (name: string, args: Record<string, unknown>) => Promise<any> } = {}) {
-  const child = new FakeChild((message, current) => {
-    if (message.method === 'initialize') respond(current, message)
-    if (message.method === 'thread/start') respond(current, message, { thread: { id: 'thread-tools' } })
-    if (message.method === 'turn/start') respond(current, message, { turn: { id: 'turn-tools', status: 'inProgress' } })
+  // `sent` lives outside any single FakeChild so it keeps working across a
+  // reset()-triggered respawn: reset() ends the current child's stdin (which
+  // permanently makes it unwritable), so `_ensureProcess` spawns a fresh
+  // FakeChild for the next turn. Binding `sent` to one child's `.messages`
+  // would go stale the moment that happens.
+  const sent: ProtocolMessage[] = []
+  const makeChild = () => new FakeChild((message, child) => {
+    sent.push(message)
+    if (message.method === 'initialize') respond(child, message)
+    if (message.method === 'thread/start') respond(child, message, { thread: { id: 'thread-tools' } })
+    if (message.method === 'turn/start') respond(child, message, { turn: { id: 'turn-tools', status: 'inProgress' } })
+  })
+  // `current` must already hold the instance the *next* spawn() call will
+  // return, since a turn's `emit`/`completeTurn` can run before the service
+  // actually invokes spawn() (spawn happens after an async hop, but tests
+  // call emit() synchronously right after startTurn()).
+  let pending = makeChild()
+  let current = pending
+  const spawn = vi.fn(() => {
+    current = pending
+    pending = makeChild()
+    return current
   })
   const service = createCodexService({
-    spawn: vi.fn(() => child),
+    spawn,
     resolveBinary: () => '/mock/codex',
     requestTimeoutMs: 250,
     turnTimeoutMs: 1_000,
   })
   return {
     service,
-    sent: child.messages,
-    emit: (message: ProtocolMessage) => child.send(message),
-    completeTurn: () => child.send({ method: 'turn/completed', params: { threadId: 'thread-tools', turn: { id: 'turn-tools', status: 'completed' } } }),
+    sent,
+    emit: (message: ProtocolMessage) => current.send(message),
+    completeTurn: () => current.send({ method: 'turn/completed', params: { threadId: 'thread-tools', turn: { id: 'turn-tools', status: 'completed' } } }),
   }
 }
 
@@ -199,6 +218,75 @@ describe('Codex app-server service', () => {
     expect(service.getStatus()).toMatchObject({ state: 'ready', busy: false, threadId: 'thread-1' })
 
     await service.dispose()
+  })
+
+  it('omits the manifest on a second turn when it has not changed', async () => {
+    const { service, sent, completeTurn } = createStubbedService({})
+
+    const first = service.startTurn({ text: 'How did I sleep?', healthContext: '{"a":1}' })
+    await vi.waitFor(() => expect(sent.find((m) => m.method === 'turn/start')).toBeTruthy())
+    await completeTurn()
+    await first
+
+    sent.length = 0
+    const second = service.startTurn({ text: 'And the week before?', healthContext: '{"a":1}' })
+    const turn = await vi.waitFor(() => {
+      const found = sent.find((m) => m.method === 'turn/start')
+      expect(found).toBeTruthy()
+      return found
+    })
+
+    expect(turn!.params!.input).toEqual([
+      { type: 'text', text: 'And the week before?', text_elements: [] },
+    ])
+    await completeTurn()
+    await second
+  })
+
+  it('sends the manifest again when it changed', async () => {
+    const { service, sent, completeTurn } = createStubbedService({})
+
+    const first = service.startTurn({ text: 'x', healthContext: '{"a":1}' })
+    await vi.waitFor(() => expect(sent.find((m) => m.method === 'turn/start')).toBeTruthy())
+    await completeTurn()
+    await first
+
+    sent.length = 0
+    const second = service.startTurn({ text: 'y', healthContext: '{"a":2}' })
+    const turn = await vi.waitFor(() => {
+      const found = sent.find((m) => m.method === 'turn/start')
+      expect(found).toBeTruthy()
+      return found
+    })
+
+    expect(turn!.params!.input).toHaveLength(2)
+    expect(turn!.params!.input[0].text).toContain('{"a":2}')
+    await completeTurn()
+    await second
+  })
+
+  it('sends the manifest again on the first turn after a reset', async () => {
+    const { service, sent, completeTurn } = createStubbedService({})
+
+    const first = service.startTurn({ text: 'x', healthContext: '{"a":1}' })
+    await vi.waitFor(() => expect(sent.find((m) => m.method === 'turn/start')).toBeTruthy())
+    await completeTurn()
+    await first
+
+    await service.reset()
+    sent.length = 0
+
+    const second = service.startTurn({ text: 'y', healthContext: '{"a":1}' })
+    const turn = await vi.waitFor(() => {
+      const found = sent.find((m) => m.method === 'turn/start')
+      expect(found).toBeTruthy()
+      return found
+    })
+
+    // The thread is gone, so the new one has never seen this manifest.
+    expect(turn!.params!.input).toHaveLength(2)
+    await completeTurn()
+    await second
   })
 
   it('reports a missing Codex binary without spawning', async () => {

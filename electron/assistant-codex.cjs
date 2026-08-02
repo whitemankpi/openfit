@@ -1,6 +1,7 @@
 'use strict'
 
 const childProcess = require('node:child_process')
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -22,6 +23,23 @@ const HEALTH_ASSISTANT_DEVELOPER_INSTRUCTIONS = [
   'Only when the user explicitly asks to open, show, or navigate to an OpenFit data view, append exactly one final HTML comment in this form: <!-- openfit:navigate {"page":"sleep","date":"YYYY-MM-DD"} -->.',
   'The page value must be exactly one of today, activity, health, sleep, body, or devices. Include date only when a relevant available date is known; otherwise omit the date property. For every other response, emit no openfit:navigate directive.',
 ].join(' ')
+
+/**
+ * The Codex thread is server-side and keeps everything it was ever sent, so a
+ * manifest pushed on every turn accumulates: ten questions leave nine stale
+ * copies naming other selected dates, and the model can read the wrong one.
+ * Send it only when it actually changed.
+ */
+function contextFingerprint(context) {
+  if (!context) return null
+  try {
+    return crypto.createHash('sha256').update(context).digest('hex')
+  } catch {
+    // Failing toward sending is the safe direction: a redundant manifest costs
+    // tokens, a missing one costs correctness.
+    return null
+  }
+}
 
 /**
  * Codex has no protocol field for declaring tools (see
@@ -244,6 +262,7 @@ class CodexService {
     this._nextRequestId = 1
     this._pending = new Map()
     this._threadId = null
+    this._lastContextHash = null
     this._active = null
     this._startPromise = null
     this._threadPromise = null
@@ -340,6 +359,7 @@ class CodexService {
       this._generation += 1
       this._shutdownConnection(reason)
       this._threadId = null
+      this._lastContextHash = null
       this._threadPromise = null
       this._startPromise = null
       this._setState('idle')
@@ -361,6 +381,7 @@ class CodexService {
     this._generation += 1
     this._shutdownConnection(reason)
     this._threadId = null
+    this._lastContextHash = null
     this._threadPromise = null
     this._startPromise = null
     this._setState('disposed')
@@ -385,12 +406,15 @@ class CodexService {
       // rather than sending an empty <OPENFIT_HEALTH_CONTEXT></...> pair,
       // which would read as "there is no context" instead of "unchanged".
       const input = []
-      if (active.context) {
+      const fingerprint = contextFingerprint(active.context)
+      const alreadySent = fingerprint !== null && fingerprint === this._lastContextHash
+      if (active.context && !alreadySent) {
         input.push({
           type: 'text',
           text: `<OPENFIT_HEALTH_CONTEXT>\n${active.context}\n</OPENFIT_HEALTH_CONTEXT>`,
           text_elements: [],
         })
+        this._lastContextHash = fingerprint
       }
       input.push({ type: 'text', text: active.text, text_elements: [] })
 
@@ -820,6 +844,7 @@ class CodexService {
     const safe = serviceError(error, 'Codex app-server stopped unexpectedly.', 'CODEX_PROCESS_EXITED')
     this._shutdownConnection(safe)
     this._threadId = null
+    this._lastContextHash = null
     this._threadPromise = null
     this._setState('error', safe)
     if (this._active) this._finishActiveError(this._active, safe, true)
