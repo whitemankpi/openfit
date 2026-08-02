@@ -9,7 +9,11 @@ services:
       OPENFIT_USERNAME: ${OPENFIT_USERNAME:?Set OPENFIT_USERNAME in .env}
       OPENFIT_PASSWORD: ${OPENFIT_PASSWORD:?Set OPENFIT_PASSWORD in .env}
       OPENFIT_ENCRYPTION_KEY: ${OPENFIT_ENCRYPTION_KEY:?Set OPENFIT_ENCRYPTION_KEY in .env}
+      OPENFIT_CODEX_WS_URL: ${OPENFIT_CODEX_WS_URL:-}
+      OPENFIT_CODEX_TOKEN: ${OPENFIT_CODEX_TOKEN:-}
       TZ: ${TZ:-UTC}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:${OPENFIT_PORT:-3000}:3000"
     volumes:

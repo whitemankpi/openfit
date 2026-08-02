@@ -1,6 +1,6 @@
-import type { DashboardData, TrendPoint } from '@/types'
-import type { History } from '@/data/history'
-import { robustBaseline, robustZScore } from './home-analysis'
+import type { DashboardData, TrendPoint } from '../types.js'
+import type { History } from '../data/history.js'
+import { robustBaseline, robustZScore } from './home-analysis.js'
 
 /**
  * OpenFit does not receive Readiness, Strain or Sleep Score from Google or

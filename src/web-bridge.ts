@@ -1,8 +1,9 @@
-import type { FitbitBridge } from './types'
+import type { FitbitBridge, HealthAssistantBridge, HealthAssistantEvent } from './types'
 
 const authListeners = new Set<Parameters<FitbitBridge['onAuthComplete']>[0]>()
 const syncListeners = new Set<Parameters<FitbitBridge['onSyncProgress']>[0]>()
 const dataListeners = new Set<Parameters<FitbitBridge['onDataUpdated']>[0]>()
+const assistantListeners = new Set<(event: HealthAssistantEvent) => void>()
 let dataEvents: EventSource | null = null
 
 function ensureDataEvents(): void {
@@ -12,6 +13,12 @@ function ensureDataEvents(): void {
     try {
       const payload = JSON.parse((event as MessageEvent).data)
       dataListeners.forEach((listener) => listener(payload))
+    } catch { /* ignore malformed server events */ }
+  })
+  dataEvents.addEventListener('assistant', (event) => {
+    try {
+      const payload = JSON.parse((event as MessageEvent).data) as HealthAssistantEvent
+      assistantListeners.forEach((listener) => listener(payload))
     } catch { /* ignore malformed server events */ }
   })
 }
@@ -109,3 +116,33 @@ const bridge: FitbitBridge = {
 }
 
 if (!window.fitbit) window.fitbit = bridge
+
+const assistantBridge: HealthAssistantBridge = {
+  getStatus: () => request('/api/assistant/status'),
+  startTurn: async (input) => {
+    let app: { currentPage?: string; selectedDate?: string } = {}
+    try { app = JSON.parse(input.healthContext)?.app || {} } catch { /* server falls back to latest */ }
+    return request('/api/assistant/turn', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: input.requestId, message: input.message, page: app.currentPage, selectedDate: app.selectedDate }),
+    })
+  },
+  cancel: (requestId) => request('/api/assistant/cancel', { method: 'POST', body: JSON.stringify({ requestId }) }),
+  reset: () => request('/api/assistant/reset', { method: 'POST' }),
+  getConfig: () => request('/api/assistant/config'),
+  saveConfig: (input) => request('/api/assistant/config', { method: 'POST', body: JSON.stringify(input) }),
+  onEvent: (callback) => {
+    assistantListeners.add(callback)
+    ensureDataEvents()
+    return () => assistantListeners.delete(callback)
+  },
+  respondToTool: async () => undefined,
+  onToolRequest: () => () => undefined,
+  getMemory: () => request('/api/assistant/memory'),
+  addMemory: (input) => request('/api/assistant/memory', { method: 'POST', body: JSON.stringify(input) }),
+  deleteMemory: (id) => request(`/api/assistant/memory/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getInsights: () => request('/api/assistant/insights'),
+  runInsight: (kind) => request('/api/assistant/insights/run', { method: 'POST', body: JSON.stringify({ kind }) }),
+}
+
+if (!window.healthAssistant) window.healthAssistant = assistantBridge

@@ -21,6 +21,7 @@ COPY --from=build /app/dist-server ./dist-server
 COPY --from=build /app/electron/google-health-service.cjs ./electron/google-health-service.cjs
 COPY --from=build /app/electron/fitbit-legacy-service.cjs ./electron/fitbit-legacy-service.cjs
 COPY --from=build /app/electron/health-cache.cjs ./electron/health-cache.cjs
+COPY --from=build /app/electron/assistant-directives.cjs ./electron/assistant-directives.cjs
 
 RUN useradd --create-home --uid 10001 openfit \
     && mkdir -p /data \

@@ -128,7 +128,7 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [archive, setArchive] = useState<RawHealthArchive | null>(null)
   const [rangeDays, setRangeDays] = useState<RangeDays>(30)
-  const [assistantConfig, setAssistantConfig] = useState<AssistantConfig>({ provider: 'codex', hasApiKey: false })
+  const [assistantConfig, setAssistantConfig] = useState<AssistantConfig>({ provider: 'codex', hasApiKey: false, proactiveInsights: false, dailyInsights: true, weeklyInsights: true })
   const selectedDateRef = useRef(selectedDate)
   const dataDateRef = useRef(data.selectedDate)
   const syncingRef = useRef(false)
@@ -380,7 +380,7 @@ export default function App() {
     }
   }
 
-  const saveAssistantConfig = async (input: { provider: AssistantProvider; apiKey?: string }) => {
+  const saveAssistantConfig = async (input: { provider: AssistantProvider; apiKey?: string; proactiveInsights?: boolean; dailyInsights?: boolean; weeklyInsights?: boolean }) => {
     if (!window.healthAssistant) return false
     try {
       const saved = await window.healthAssistant.saveConfig(input)
@@ -778,7 +778,7 @@ function SettingsDialog({
   onExport: () => Promise<void>
   onDisconnect: () => Promise<void>
   assistantConfig: AssistantConfig
-  onSaveAssistantConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<boolean>
+  onSaveAssistantConfig: (input: { provider: AssistantProvider; apiKey?: string; proactiveInsights?: boolean; dailyInsights?: boolean; weeklyInsights?: boolean }) => Promise<boolean>
 }) {
   const [clientId, setClientId] = useState(status.clientId)
   const [clientSecret, setClientSecret] = useState('')
@@ -788,6 +788,9 @@ function SettingsDialog({
   const [assistantProvider, setAssistantProvider] = useState<AssistantProvider>(assistantConfig.provider)
   const [deepSeekKey, setDeepSeekKey] = useState('')
   const [savingAssistant, setSavingAssistant] = useState(false)
+  const [proactiveInsights, setProactiveInsights] = useState(Boolean(assistantConfig.proactiveInsights))
+  const [dailyInsights, setDailyInsights] = useState(assistantConfig.dailyInsights !== false)
+  const [weeklyInsights, setWeeklyInsights] = useState(assistantConfig.weeklyInsights !== false)
 
   useEffect(() => {
     if (!open) return
@@ -802,7 +805,10 @@ function SettingsDialog({
     if (!open) return
     setAssistantProvider(assistantConfig.provider)
     setDeepSeekKey('')
-  }, [open, assistantConfig.provider])
+    setProactiveInsights(Boolean(assistantConfig.proactiveInsights))
+    setDailyInsights(assistantConfig.dailyInsights !== false)
+    setWeeklyInsights(assistantConfig.weeklyInsights !== false)
+  }, [open, assistantConfig])
 
   const secretRequired = provider === 'google-health'
   const providerLabel = provider === 'google-health' ? 'Google Health' : 'Fitbit legacy'
@@ -825,12 +831,18 @@ function SettingsDialog({
 
   const assistantKeyMissing = assistantProvider === 'deepseek' && !deepSeekKey.trim() && !assistantConfig.hasApiKey
   const assistantUnchanged = assistantProvider === assistantConfig.provider && !deepSeekKey.trim()
+    && proactiveInsights === Boolean(assistantConfig.proactiveInsights)
+    && dailyInsights === (assistantConfig.dailyInsights !== false)
+    && weeklyInsights === (assistantConfig.weeklyInsights !== false)
 
   const submitAssistant = async () => {
     setSavingAssistant(true)
     const ok = await onSaveAssistantConfig({
       provider: assistantProvider,
       ...(deepSeekKey.trim() ? { apiKey: deepSeekKey.trim() } : {}),
+      proactiveInsights,
+      dailyInsights,
+      weeklyInsights,
     })
     setSavingAssistant(false)
     if (ok) setDeepSeekKey('')
@@ -912,7 +924,7 @@ function SettingsDialog({
         <div className="settings-section">
           <Label>Assistant model</Label>
           <div className="range-selector" role="group" aria-label="Assistant model">
-            {(['codex', 'deepseek'] as AssistantProvider[]).map((option) => (
+            {((status.isElectron ? ['codex', 'deepseek'] : ['codex']) as AssistantProvider[]).map((option) => (
               <button
                 key={option}
                 type="button"
@@ -938,9 +950,20 @@ function SettingsDialog({
             </div>
           )}
           <p className="settings-note">
-            Both options send the conversation to a remote model, so health data leaves this machine while you chat.
-            Nothing is sent until you send a message.
+            {status.isElectron ? 'Both options' : 'Codex'} sends the conversation to a remote model, so health data leaves this machine while you chat.
+            {proactiveInsights && !status.isElectron
+              ? ' Scheduled reports also send compact evidence while the chat is closed.'
+              : ' Nothing is sent until you send a message.'}
           </p>
+          {!status.isElectron && (
+            <div className="form-field">
+              <Label>Proactive insights</Label>
+              <label><input type="checkbox" checked={proactiveInsights} onChange={(event) => setProactiveInsights(event.target.checked)} /> Allow encrypted daily/weekly Codex reports</label>
+              <label><input type="checkbox" checked={dailyInsights} disabled={!proactiveInsights} onChange={(event) => setDailyInsights(event.target.checked)} /> Daily briefing after 08:00</label>
+              <label><input type="checkbox" checked={weeklyInsights} disabled={!proactiveInsights} onChange={(event) => setWeeklyInsights(event.target.checked)} /> Weekly review on Monday</label>
+              <p className="settings-note">Scheduled reports send a compact evidence manifest and requested aggregates to Codex even when the chat is closed.</p>
+            </div>
+          )}
           <Button
             type="button"
             variant="outline"

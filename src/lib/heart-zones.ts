@@ -1,4 +1,4 @@
-import type { HeartZoneMinutes, TimePoint } from '@/types'
+import type { HeartZoneMinutes, TimePoint } from '../types.js'
 
 /**
  * Google and Fitbit never expose the user's age or a measured maximum heart

@@ -6,6 +6,8 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { EncryptedStore } from './storage.js'
 import { historySyncDue, type SyncSchedulerState } from './sync-scheduler.js'
+import { HostedAssistantRuntime } from './assistant-runtime.js'
+import type { RawHealthArchive } from '../src/types.js'
 
 const require = createRequire(import.meta.url)
 const googleHealth = require(path.resolve('electron/google-health-service.cjs'))
@@ -32,6 +34,12 @@ const defaultCredentials: Credentials = {
 const distDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist')
 const syncIntervalMs = 5 * 60_000
 const schedulerStateFile = 'sync-scheduler.json'
+const assistant = new HostedAssistantRuntime({
+  store,
+  archive: () => healthCache.normalizeArchive(store.read('health-cache.json', null)) as RawHealthArchive,
+  url: String(process.env.OPENFIT_CODEX_WS_URL || '').trim(),
+  token: String(process.env.OPENFIT_CODEX_TOKEN || '').trim(),
+})
 
 type SyncResult = { payload: any; changed: boolean }
 type BackfillResult = { requested: number; imported: number; empty: number; failed: number; canceled: boolean }
@@ -170,6 +178,13 @@ function broadcastDataUpdate(date: string, generatedAt: string | null, reason: s
   }
 }
 
+function broadcastAssistantEvent(event: unknown): void {
+  const message = `event: assistant\ndata: ${JSON.stringify(event)}\n\n`
+  for (const client of eventClients) {
+    try { client.write(message) } catch { eventClients.delete(client) }
+  }
+}
+
 function eventStream(request: IncomingMessage, response: ServerResponse): void {
   response.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
@@ -267,6 +282,7 @@ async function runScheduledSync(): Promise<void> {
     lastFinalizedDate: yesterday,
     lastHistorySyncAt: new Date().toISOString(),
   })
+  try { await assistant.runDue() } catch (error) { console.error('Scheduled assistant insight failed.', error) }
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -333,6 +349,47 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (request.method === 'GET' && url.pathname === '/api/cache') return json(response, 200, healthCache.latestDay(store.read('health-cache.json', null))), true
   if (request.method === 'GET' && url.pathname === '/api/archive') return json(response, 200, healthCache.normalizeArchive(store.read('health-cache.json', null))), true
   if (request.method === 'GET' && url.pathname === '/api/oauth/status') return json(response, 200, oauthResult), true
+  if (request.method === 'GET' && url.pathname === '/api/assistant/status') return json(response, 200, assistant.status()), true
+  if (request.method === 'GET' && url.pathname === '/api/assistant/config') return json(response, 200, { ...assistant.config, hasApiKey: false }), true
+  if (request.method === 'POST' && url.pathname === '/api/assistant/config') {
+    const input = await body(request)
+    if (input.provider && input.provider !== 'codex') throw new Error('The hosted assistant currently supports Codex only.')
+    return json(response, 200, { ...assistant.saveConfig(input), hasApiKey: false }), true
+  }
+  if (request.method === 'POST' && url.pathname === '/api/assistant/turn') {
+    const input = await body(request)
+    const requestId = String(input.requestId || '')
+    const message = String(input.message || '').trim()
+    if (!/^[a-zA-Z0-9_-]{8,80}$/.test(requestId) || !message || message.length > 20_000) throw new Error('Invalid assistant request.')
+    void assistant.chat({
+      message,
+      page: ['today', 'activity', 'health', 'sleep', 'body', 'devices'].includes(input.page) ? input.page : 'today',
+      selectedDate: /^\d{4}-\d{2}-\d{2}$/.test(String(input.selectedDate || '')) ? String(input.selectedDate) : undefined,
+      onDelta: (delta) => broadcastAssistantEvent({ requestId, type: 'delta', delta }),
+      onTool: (name, ok) => broadcastAssistantEvent({ requestId, type: 'tool', name, ok }),
+    }).then((result) => broadcastAssistantEvent({ requestId, type: 'complete', text: result.text }))
+      .catch((error) => broadcastAssistantEvent({ requestId, type: error?.name === 'AbortError' ? 'cancelled' : 'error', message: error instanceof Error ? error.message : 'Assistant failed.' }))
+    return json(response, 202, { requestId }), true
+  }
+  if (request.method === 'POST' && url.pathname === '/api/assistant/cancel') {
+    await assistant.cancel()
+    return json(response, 200, { ok: true }), true
+  }
+  if (request.method === 'POST' && url.pathname === '/api/assistant/reset') {
+    await assistant.reset()
+    return json(response, 200, { ok: true }), true
+  }
+  if (request.method === 'GET' && url.pathname === '/api/assistant/memory') return json(response, 200, assistant.memory()), true
+  if (request.method === 'POST' && url.pathname === '/api/assistant/memory') return json(response, 200, assistant.addMemory(await body(request))), true
+  if (request.method === 'DELETE' && url.pathname.startsWith('/api/assistant/memory/')) {
+    return json(response, 200, assistant.deleteMemory(decodeURIComponent(url.pathname.slice('/api/assistant/memory/'.length)))), true
+  }
+  if (request.method === 'GET' && url.pathname === '/api/assistant/insights') return json(response, 200, assistant.reports()), true
+  if (request.method === 'POST' && url.pathname === '/api/assistant/insights/run') {
+    const kind = String((await body(request)).kind)
+    if (kind !== 'daily' && kind !== 'weekly') throw new Error('Insight kind must be daily or weekly.')
+    return json(response, 200, await assistant.generateInsight(kind)), true
+  }
   if (request.method === 'POST' && url.pathname === '/api/config') {
     const value = credentials()
     const config = validateConfig(await body(request), value.config)

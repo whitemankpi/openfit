@@ -200,3 +200,15 @@ describe('correlate', () => {
     expect(result.error).toContain('lagDays')
   })
 })
+
+describe('recall', () => {
+  it('returns only user-approved memory relevant to a date range', () => {
+    const value = context()
+    value.memory = [
+      { id: '1', kind: 'episode', text: 'Had flu', createdAt: '2026-03-10T00:00:00Z', startDate: '2026-03-10', endDate: '2026-03-17' },
+      { id: '2', kind: 'episode', text: 'Travelled', createdAt: '2026-04-01T00:00:00Z', startDate: '2026-04-01', endDate: '2026-04-05' },
+    ]
+    const result = runTool('recall', { start: '2026-03-15', end: '2026-03-20' }, value) as { entries: Array<{ text: string }> }
+    expect(result.entries.map((entry) => entry.text)).toEqual(['Had flu'])
+  })
+})

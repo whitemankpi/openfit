@@ -1,5 +1,5 @@
-import type { ActivityItem, DashboardData, HeartZoneMinutes, SleepStage, SleepStageKey, SleepStageSegment, TimePoint, TrendPoint } from '../types'
-import type { History, HistoryDay } from './history'
+import type { ActivityItem, DashboardData, HeartZoneMinutes, SleepStage, SleepStageKey, SleepStageSegment, TimePoint, TrendPoint } from '../types.js'
+import type { History, HistoryDay } from './history.js'
 
 const dayMs = 86_400_000
 

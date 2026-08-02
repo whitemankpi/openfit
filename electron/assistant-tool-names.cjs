@@ -24,6 +24,7 @@ const KNOWN_TOOL_NAMES = [
   'compare_periods',
   'weekday_pattern',
   'correlate',
+  'recall',
 ]
 
 module.exports = { KNOWN_TOOL_NAMES }

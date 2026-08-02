@@ -1,0 +1,21 @@
+[Unit]
+Description=Codex app-server for OpenFit
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStart=/home/ubuntu/.local/bin/codex app-server --listen ws://172.17.0.1:4500 --ws-auth capability-token --ws-token-file /home/ubuntu/.config/openfit/codex-token
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/.codex
+
+[Install]
+WantedBy=multi-user.target

@@ -1,12 +1,14 @@
-import type { DashboardData, TrendPoint } from '@/types'
-import type { History } from '@/data/history'
-import { robustBaseline } from './home-analysis'
-import { computeScores, type ScoreKey } from './scores'
-import { weekdayMedians, spearman } from './analytics'
+import type { DashboardData, TrendPoint } from '../types.js'
+import type { History } from '../data/history.js'
+import { robustBaseline } from './home-analysis.js'
+import { computeScores, type ScoreKey } from './scores.js'
+import { weekdayMedians, spearman } from './analytics.js'
+import { relevantMemory, type MemoryEntry } from './assistant-memory.js'
 
 export interface ToolContext {
   data: DashboardData
   history: History
+  memory?: MemoryEntry[]
 }
 
 export interface ToolDefinition {
@@ -345,6 +347,32 @@ const correlate: ToolDefinition = {
   },
 }
 
+const recall: ToolDefinition = {
+  name: 'recall',
+  description: 'Recall user-approved episodes or conclusions relevant to an optional date range or metric.',
+  schema: {
+    type: 'object',
+    properties: {
+      start: { type: 'string', description: 'Optional YYYY-MM-DD' },
+      end: { type: 'string', description: 'Optional YYYY-MM-DD' },
+      metric: { type: 'string', enum: METRIC_KEYS },
+    },
+    required: [],
+  },
+  run: (args, context) => {
+    const start = args.start === undefined ? undefined : String(args.start)
+    const end = args.end === undefined ? undefined : String(args.end)
+    if ((start && !ISO_DATE.test(start)) || (end && !ISO_DATE.test(end)) || (start && end && start > end)) return toolError('Recall dates must be a valid ordered YYYY-MM-DD range.')
+    const metric = args.metric === undefined ? undefined : readMetric(args)
+    if (metric && 'error' in metric) return metric
+    const entries = relevantMemory(context.memory || [], {
+      start, end,
+      metrics: metric ? [metric.metric] : [],
+    }).filter((entry) => entry.kind === 'episode' || entry.kind === 'conclusion')
+    return entries.length ? { entries } : { insufficient: true, entries: [] }
+  },
+}
+
 export const ASSISTANT_TOOLS: ToolDefinition[] = [
   metricWindow,
   explainScore,
@@ -352,6 +380,7 @@ export const ASSISTANT_TOOLS: ToolDefinition[] = [
   comparePeriods,
   weekdayPattern,
   correlate,
+  recall,
 ]
 
 export const TOOL_NAMES = ASSISTANT_TOOLS.map((tool) => tool.name)

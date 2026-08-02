@@ -1,6 +1,6 @@
-import { estimateMaxHeartRate, zoneMinutesFromIntraday } from '../lib/heart-zones'
-import { normalizeFitbitData } from './normalize'
-import type { HeartZoneMinutes, RawHealthArchive, TimePoint, TrendPoint } from '../types'
+import { estimateMaxHeartRate, zoneMinutesFromIntraday } from '../lib/heart-zones.js'
+import { normalizeFitbitData } from './normalize.js'
+import type { HeartZoneMinutes, RawHealthArchive, TimePoint, TrendPoint } from '../types.js'
 
 export const RANGE_OPTIONS = [7, 30, 90, 365] as const
 export type RangeDays = (typeof RANGE_OPTIONS)[number]

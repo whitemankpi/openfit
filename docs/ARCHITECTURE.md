@@ -60,6 +60,20 @@ The renderer runs with `nodeIntegration: false`, `contextIsolation: true`, and s
 
 Both providers are remote: Codex app-server talks to OpenAI's backend and DeepSeek talks to its own API. Health data leaves the machine once a conversation starts. Neither is contacted until the user sends a message.
 
+The hosted deployment can optionally connect to a separately running Codex
+app-server over an authenticated WebSocket. Interactive chat reuses one
+ephemeral thread until the user resets it. Daily and weekly insight jobs always
+use fresh ephemeral threads and store only the final report, date window,
+fingerprint, and tool-call count in the encrypted `/data` volume. Scheduled
+model access is disabled until the user opts in; enabling it changes the
+desktop-default privacy rule because compact health evidence may then leave the
+machine while the chat is closed.
+
+Assistant memory and generated insight reports are deliberately separate.
+Facts and preferences enter encrypted memory only through an explicit user
+action. A scheduled conclusion remains a report and cannot silently become a
+durable fact about the user.
+
 ### Tool layer
 
 `src/lib/assistant-tools.ts` defines six read-only tools — `metric_window`, `compare_periods`, `correlate`, `explain_score`, `weekday_pattern`, `data_coverage` — that compute aggregates over the local `History` and scores rather than returning raw archive rows. Metric names are checked against an own-property-guarded allowlist because they arrive from a model that has read user-supplied text. `src/lib/analytics.ts` supplies the Spearman rank correlation and per-weekday medians behind two of those tools.

@@ -11,5 +11,19 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["server/**/*.ts", "server/**/*.d.ts"]
+  "include": [
+    "server/**/*.ts",
+    "server/**/*.d.ts",
+    "src/types.ts",
+    "src/data/history.ts",
+    "src/data/normalize.ts",
+    "src/data/demo.ts",
+    "src/lib/analytics.ts",
+    "src/lib/assistant-manifest.ts",
+    "src/lib/assistant-memory.ts",
+    "src/lib/assistant-tools.ts",
+    "src/lib/heart-zones.ts",
+    "src/lib/home-analysis.ts",
+    "src/lib/scores.ts"
+  ]
 }

@@ -22,6 +22,8 @@ import { ASSISTANT_TOOLS, TOOL_NAMES, runTool } from '@/lib/assistant-tools'
 import { buildAssistantManifest } from '@/lib/assistant-manifest'
 import type {
   DashboardData,
+  AssistantInsightReport,
+  AssistantMemoryEntry,
   HealthAssistantEvent,
   HealthAssistantStatus,
   PageId,
@@ -100,6 +102,8 @@ export function HealthAssistant({
   const [status, setStatus] = useState(unavailableStatus)
   const statusRef = useRef(status)
   const [toolActivity, setToolActivity] = useState<string[]>([])
+  const [insightReports, setInsightReports] = useState<AssistantInsightReport[]>([])
+  const [memoryEntries, setMemoryEntries] = useState<AssistantMemoryEntry[]>([])
 
   useEffect(() => { dataRef.current = data }, [data])
   useEffect(() => { historyRef.current = history }, [history])
@@ -139,7 +143,11 @@ export function HealthAssistant({
 
   useEffect(() => { void refreshStatus() }, [refreshStatus])
   useEffect(() => {
-    if (open) void refreshStatus()
+    if (open) {
+      void refreshStatus()
+      void window.healthAssistant?.getInsights?.().then(setInsightReports).catch(() => undefined)
+      void window.healthAssistant?.getMemory?.().then(setMemoryEntries).catch(() => undefined)
+    }
   }, [open, refreshStatus])
 
   const modelAdapter = useMemo<ChatModelAdapter>(() => ({
@@ -229,7 +237,7 @@ export function HealthAssistant({
           onClose={() => onOpenChange(false)}
           onStatusRefresh={refreshStatus}
         />
-        <AssistantThread ready={ready} toolActivity={toolActivity} status={status} />
+        <AssistantThread ready={ready} toolActivity={toolActivity} status={status} insightReports={insightReports} onReportsChange={setInsightReports} memoryEntries={memoryEntries} onMemoryChange={setMemoryEntries} />
       </aside>
       {open && <button className="assistant-scrim" aria-label="Close health assistant" onClick={() => onOpenChange(false)} />}
     </AssistantRuntimeProvider>
@@ -281,11 +289,37 @@ function AssistantThread({
   ready,
   toolActivity,
   status,
+  insightReports,
+  onReportsChange,
+  memoryEntries,
+  onMemoryChange,
 }: {
   ready: boolean
   toolActivity: string[]
   status: HealthAssistantStatus
+  insightReports: AssistantInsightReport[]
+  onReportsChange: (reports: AssistantInsightReport[]) => void
+  memoryEntries: AssistantMemoryEntry[]
+  onMemoryChange: (entries: AssistantMemoryEntry[]) => void
 }) {
+  const [memoryText, setMemoryText] = useState('')
+  const [memoryKind, setMemoryKind] = useState<'fact' | 'preference'>('fact')
+  const runInsight = async (kind: 'daily' | 'weekly') => {
+    await window.healthAssistant?.runInsight?.(kind)
+    const reports = await window.healthAssistant?.getInsights?.()
+    if (reports) onReportsChange(reports)
+  }
+  const saveMemory = async () => {
+    const text = memoryText.trim()
+    if (!text) return
+    const entries = await window.healthAssistant?.addMemory?.({ kind: memoryKind, text })
+    if (entries) onMemoryChange(entries)
+    setMemoryText('')
+  }
+  const deleteMemory = async (id: string) => {
+    const entries = await window.healthAssistant?.deleteMemory?.(id)
+    if (entries) onMemoryChange(entries)
+  }
   return (
     <ThreadPrimitive.Root className="assistant-thread">
       <ThreadPrimitive.Viewport className="assistant-viewport">
@@ -298,6 +332,36 @@ function AssistantThread({
               <ThreadPrimitive.Suggestion prompt="Compare my activity over the last seven days." send disabled={!ready}>Compare this week</ThreadPrimitive.Suggestion>
               <ThreadPrimitive.Suggestion prompt="Show me my heart health data." send disabled={!ready}>Open heart data</ThreadPrimitive.Suggestion>
             </div>
+            {window.healthAssistant?.getInsights && (
+              <div className="assistant-insight-reports">
+                <div className="assistant-insight-actions">
+                  <button type="button" onClick={() => void runInsight('daily')}>Generate daily briefing</button>
+                  <button type="button" onClick={() => void runInsight('weekly')}>Generate weekly review</button>
+                </div>
+                {insightReports.slice(-3).reverse().map((report) => (
+                  <article key={report.id}>
+                    <strong>{report.title}</strong>
+                    <p>{report.body}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+            {window.healthAssistant?.getMemory && (
+              <div className="assistant-memory">
+                <strong>Assistant memory</strong>
+                <div className="assistant-memory-form">
+                  <select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as 'fact' | 'preference')} aria-label="Memory type">
+                    <option value="fact">Fact</option>
+                    <option value="preference">Preference</option>
+                  </select>
+                  <input value={memoryText} maxLength={280} onChange={(event) => setMemoryText(event.target.value)} placeholder="Something Codex should remember" />
+                  <button type="button" onClick={() => void saveMemory()}>Remember</button>
+                </div>
+                {memoryEntries.map((entry) => (
+                  <p key={entry.id}><span>{entry.text}</span><button type="button" onClick={() => void deleteMemory(entry.id)} aria-label={`Forget ${entry.text}`}>Forget</button></p>
+                ))}
+              </div>
+            )}
           </div>
         </AuiIf>
 

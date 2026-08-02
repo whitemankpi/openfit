@@ -1,4 +1,4 @@
-import type { DashboardData, TrendPoint } from '@/types'
+import type { DashboardData, TrendPoint } from '../types.js'
 
 export interface BaselineComparison {
   current: number | null

@@ -1,7 +1,8 @@
-import type { DashboardData, PageId } from '@/types'
-import type { History } from '@/data/history'
-import { computeScores } from './scores'
-import { METRIC_KEYS } from './assistant-tools'
+import type { DashboardData, PageId } from '../types.js'
+import type { History } from '../data/history.js'
+import { computeScores } from './scores.js'
+import { METRIC_KEYS } from './assistant-tools.js'
+import { memoryManifest, type MemoryEntry } from './assistant-memory.js'
 
 /**
  * What the model gets before it asks for anything.
@@ -10,7 +11,7 @@ import { METRIC_KEYS } from './assistant-tools'
  * leaves the model to pull only the numbers its question needs. Less of the
  * wearer's history leaves the machine for a question about one night.
  */
-export function buildAssistantManifest(data: DashboardData, history: History, page: PageId): string {
+export function buildAssistantManifest(data: DashboardData, history: History, page: PageId, memory: MemoryEntry[] = []): string {
   const dates = history.days.map((day) => day.date)
   const present = METRIC_KEYS.filter((metric) => history.days.some((day) => {
     const value = (day.trend as unknown as Record<string, number | null>)[metric]
@@ -20,7 +21,9 @@ export function buildAssistantManifest(data: DashboardData, history: History, pa
 
   return JSON.stringify({
     schema: 'openfit-assistant-manifest/v1',
-    generatedAt: new Date().toISOString(),
+    // Stable until the underlying payload changes, so stateful providers can
+    // fingerprint and omit an unchanged manifest on follow-up turns.
+    generatedAt: data.generatedAt,
     source: data.source,
     app: {
       currentPage: page,
@@ -52,6 +55,7 @@ export function buildAssistantManifest(data: DashboardData, history: History, pa
       load: { value: scores.load.value, confidence: scores.load.confidence },
       sleepQuality: { value: scores.sleepQuality.value, confidence: scores.sleepQuality.confidence },
     },
+    memory: memoryManifest(memory),
     // Counts and error keys only: error messages are verbatim upstream
     // Google/Fitbit text OpenFit does not control or sanitize, so they never
     // go into a payload sent to a model.

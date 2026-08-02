@@ -1,5 +1,5 @@
-import { averageHeartRate, sleepingHeartRate } from '../lib/heart-zones'
-import { createDemoData } from './demo'
+import { averageHeartRate, sleepingHeartRate } from '../lib/heart-zones.js'
+import { createDemoData } from './demo.js'
 import type {
   ActivityItem,
   DashboardData,
@@ -11,7 +11,7 @@ import type {
   SleepStage,
   TimePoint,
   TrendPoint,
-} from '../types'
+} from '../types.js'
 
 type Json = Record<string, any>
 

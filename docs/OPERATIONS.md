@@ -171,6 +171,33 @@ Commit `3195308` introduced production background synchronization:
 
 The scheduler skips when disconnected or when another sync is in progress. A Google Fit refresh failure falls back to Google Health rather than blocking the entire sync.
 
+## Hosted Codex assistant and proactive insights
+
+The hosted assistant connects from the container to a Codex app-server running
+as `ubuntu` on the VPS host. Codex credentials stay in `/home/ubuntu/.codex` and
+are never mounted into the container. The bridge uses an authenticated
+WebSocket on the Docker host gateway.
+
+Install `deploy/openfit-codex-app-server.service` as
+`/etc/systemd/system/openfit-codex-app-server.service`. Generate a random token
+into `/home/ubuntu/.config/openfit/codex-token` with mode `0600`, then put the
+same value in the production `.env` without printing it:
+
+```text
+OPENFIT_CODEX_WS_URL=ws://host.docker.internal:4500
+OPENFIT_CODEX_TOKEN=<same capability token>
+```
+
+The app-server listens on `172.17.0.1`, not the public interface. Confirm the
+Docker bridge address before enabling the unit. The compose file maps
+`host.docker.internal` through `host-gateway`.
+
+Proactive reports are opt-in in Settings. Daily reports run after 08:00 local
+time; weekly reports run on Monday after 08:00. Every scheduled report uses a
+fresh ephemeral Codex thread, a compact evidence manifest, bounded tool calls,
+and encrypted storage in `/data/assistant-insights.json`. User memory is a
+separate encrypted file and is never written by a scheduled report.
+
 After deploying frontend changes, hard-refresh the browser once (`Ctrl+Shift+R`).
 
 ## Fast diagnostics

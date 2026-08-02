@@ -1703,6 +1703,23 @@ input:focus-visible,
   text-align: center;
 }
 
+.assistant-insight-reports,
+.assistant-memory { display: grid; gap: 8px; width: 100%; margin-top: 14px; text-align: left; }
+.assistant-insight-actions,
+.assistant-memory-form { display: flex; gap: 6px; }
+.assistant-insight-actions button,
+.assistant-memory button,
+.assistant-memory select,
+.assistant-memory input { min-height: 30px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--card); font: inherit; }
+.assistant-insight-actions button,
+.assistant-memory button { padding: 5px 8px; cursor: pointer; }
+.assistant-memory input { min-width: 0; flex: 1; padding: 5px 8px; }
+.assistant-memory select { padding: 5px; }
+.assistant-insight-reports article { padding: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
+.assistant-insight-reports article p { margin: 5px 0 0; white-space: pre-wrap; }
+.assistant-memory > p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+.assistant-memory > p span { min-width: 0; overflow-wrap: anywhere; }
+
 .assistant-scrim { display: none; }
 
 @media (max-width: 1180px) {

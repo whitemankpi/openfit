@@ -297,6 +297,33 @@ export interface AssistantConfig {
   provider: AssistantProvider
   /** Whether a DeepSeek key is stored. The key itself never leaves the main process. */
   hasApiKey: boolean
+  proactiveInsights?: boolean
+  dailyInsights?: boolean
+  weeklyInsights?: boolean
+}
+
+export interface AssistantMemoryEntry {
+  id: string
+  kind: 'fact' | 'episode' | 'preference' | 'conclusion'
+  text: string
+  createdAt: string
+  startDate?: string
+  endDate?: string | null
+  window?: { start: string; end: string }
+  metrics?: string[]
+  sampleSize?: number
+}
+
+export interface AssistantInsightReport {
+  id: string
+  kind: 'daily' | 'weekly'
+  generatedAt: string
+  startDate: string
+  endDate: string
+  title: string
+  body: string
+  fingerprint: string
+  toolCalls: number
 }
 
 export interface HealthAssistantStatus {
@@ -328,8 +355,13 @@ export interface HealthAssistantBridge {
   cancel: (requestId: string) => Promise<void>
   reset: () => Promise<void>
   getConfig: () => Promise<AssistantConfig>
-  saveConfig: (input: { provider: AssistantProvider; apiKey?: string }) => Promise<AssistantConfig>
+  saveConfig: (input: { provider: AssistantProvider; apiKey?: string; proactiveInsights?: boolean; dailyInsights?: boolean; weeklyInsights?: boolean }) => Promise<AssistantConfig>
   onEvent: (callback: (event: HealthAssistantEvent) => void) => () => void
   respondToTool: (response: { callId: string; result?: unknown; error?: string }) => Promise<void>
   onToolRequest: (callback: (request: { callId: string; name: string; args: Record<string, unknown> }) => void) => () => void
+  getMemory?: () => Promise<AssistantMemoryEntry[]>
+  addMemory?: (input: Omit<AssistantMemoryEntry, 'id' | 'createdAt'>) => Promise<AssistantMemoryEntry[]>
+  deleteMemory?: (id: string) => Promise<AssistantMemoryEntry[]>
+  getInsights?: () => Promise<AssistantInsightReport[]>
+  runInsight?: (kind: 'daily' | 'weekly') => Promise<AssistantInsightReport | null>
 }
