@@ -304,6 +304,15 @@ function AssistantThread({
 }) {
   const [memoryText, setMemoryText] = useState('')
   const [memoryKind, setMemoryKind] = useState<'fact' | 'preference'>('fact')
+  const memoryPlaceholder = memoryKind === 'fact'
+    ? 'Example: I avoid caffeine after 2 PM'
+    : 'Example: Keep recommendations short and practical'
+  const memoryKindLabel = (kind: AssistantMemoryEntry['kind']) => ({
+    fact: 'About me',
+    preference: 'How to respond',
+    episode: 'Past event',
+    conclusion: 'Previous insight',
+  })[kind]
   const runInsight = async (kind: 'daily' | 'weekly') => {
     await window.healthAssistant?.runInsight?.(kind)
     const reports = await window.healthAssistant?.getInsights?.()
@@ -348,18 +357,33 @@ function AssistantThread({
             )}
             {window.healthAssistant?.getMemory && (
               <div className="assistant-memory">
-                <strong>Assistant memory</strong>
-                <div className="assistant-memory-form">
-                  <select value={memoryKind} onChange={(event) => setMemoryKind(event.target.value as 'fact' | 'preference')} aria-label="Memory type">
-                    <option value="fact">Fact</option>
-                    <option value="preference">Preference</option>
-                  </select>
-                  <input value={memoryText} maxLength={280} onChange={(event) => setMemoryText(event.target.value)} placeholder="Something Codex should remember" />
-                  <button type="button" onClick={() => void saveMemory()}>Remember</button>
+                <div className="assistant-memory-heading">
+                  <strong>What should the assistant remember?</strong>
+                  <p>Saved details are used in future chats and health briefings. Add stable context, not today’s measurements.</p>
                 </div>
-                {memoryEntries.map((entry) => (
-                  <p key={entry.id}><span>{entry.text}</span><button type="button" onClick={() => void deleteMemory(entry.id)} aria-label={`Forget ${entry.text}`}>Forget</button></p>
-                ))}
+                <div className="assistant-memory-form">
+                  <span className="assistant-memory-label">Choose what kind of detail this is</span>
+                  <div className="assistant-memory-kinds" role="radiogroup" aria-label="Type of detail to remember">
+                    <button type="button" role="radio" aria-checked={memoryKind === 'fact'} className={memoryKind === 'fact' ? 'is-active' : ''} onClick={() => setMemoryKind('fact')}>
+                      <strong>About me</strong><small>Habits, goals, conditions</small>
+                    </button>
+                    <button type="button" role="radio" aria-checked={memoryKind === 'preference'} className={memoryKind === 'preference' ? 'is-active' : ''} onClick={() => setMemoryKind('preference')}>
+                      <strong>How to respond</strong><small>Tone and answer style</small>
+                    </button>
+                  </div>
+                  <label className="assistant-memory-input">
+                    <span>Detail to remember</span>
+                    <input value={memoryText} maxLength={280} onChange={(event) => setMemoryText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveMemory() }} placeholder={memoryPlaceholder} />
+                  </label>
+                  <button className="assistant-memory-save" type="button" disabled={!memoryText.trim()} onClick={() => void saveMemory()}>Save to memory</button>
+                </div>
+                {memoryEntries.length > 0 && (
+                  <div className="assistant-memory-list" aria-label="Saved assistant memory">
+                    {memoryEntries.map((entry) => (
+                      <div key={entry.id}><span><small>{memoryKindLabel(entry.kind)}</small>{entry.text}</span><button type="button" onClick={() => void deleteMemory(entry.id)} aria-label={`Remove ${entry.text}`}>Remove</button></div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

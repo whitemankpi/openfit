@@ -1712,20 +1712,34 @@ input:focus-visible,
 
 .assistant-insight-reports,
 .assistant-memory { display: grid; gap: 8px; width: 100%; margin-top: 14px; text-align: left; }
-.assistant-insight-actions,
-.assistant-memory-form { display: flex; gap: 6px; }
+.assistant-insight-actions { display: flex; gap: 6px; }
+.assistant-memory-heading { display: flex; flex-direction: column; gap: 4px; }
+.assistant-memory-heading > strong { color: var(--foreground); font-size: 14px; font-weight: 500; }
+.assistant-memory-heading > p { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
+.assistant-memory-form { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--card) 74%, transparent); }
+.assistant-memory-label,
+.assistant-memory-input > span { color: var(--muted-foreground); font-size: 11px; }
+.assistant-memory-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.assistant-memory-kinds > button { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px !important; text-align: left; }
+.assistant-memory-kinds > button strong { color: var(--foreground); font-size: 12px; font-weight: 500; }
+.assistant-memory-kinds > button small { color: var(--muted-foreground); font-size: 10px; line-height: 1.3; }
+.assistant-memory-kinds > button.is-active { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, var(--card)); }
+.assistant-memory-input { display: grid; gap: 5px; }
 .assistant-insight-actions button,
 .assistant-memory button,
-.assistant-memory select,
 .assistant-memory input { min-height: 30px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--card); font: inherit; }
 .assistant-insight-actions button,
 .assistant-memory button { padding: 5px 8px; cursor: pointer; }
-.assistant-memory input { min-width: 0; flex: 1; padding: 5px 8px; }
-.assistant-memory select { padding: 5px; }
+.assistant-memory button:disabled { opacity: 0.42; cursor: default; }
+.assistant-memory input { width: 100%; min-width: 0; padding: 6px 8px; }
+.assistant-memory-save { justify-self: start; color: var(--primary-foreground) !important; border-color: var(--primary) !important; background: var(--primary) !important; }
 .assistant-insight-reports article { padding: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); }
 .assistant-insight-reports article p { margin: 5px 0 0; white-space: pre-wrap; }
-.assistant-memory > p { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
-.assistant-memory > p span { min-width: 0; overflow-wrap: anywhere; }
+.assistant-memory-list { display: grid; gap: 6px; }
+.assistant-memory-list > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); }
+.assistant-memory-list > div > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.assistant-memory-list > div > span small { color: var(--muted-foreground); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.assistant-memory-list > div > button { flex: 0 0 auto; color: var(--muted-foreground); background: transparent; }
 
 .assistant-scrim { display: none; }
 
@@ -3262,7 +3276,10 @@ input:focus-visible,
 .score-card-lead { display: flex; align-items: center; gap: 14px; padding-top: 6px; }
 .score-card-lead .radial-progress strong { font-size: 22px; }
 .score-card-status { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 5px; }
-.score-card-status strong { overflow: hidden; color: var(--foreground); font-size: 14px; font-weight: 500; line-height: 1.35; text-overflow: ellipsis; }
+.score-card-status strong { color: var(--foreground); font-size: 13px; font-weight: 450; line-height: 1.45; }
+.score-status-badge { align-self: flex-start; padding: 2px 7px; border-radius: 999px; color: var(--muted-foreground); background: var(--muted); font-size: 11px; line-height: 1.4; }
+.score-status-badge.is-low { color: var(--color-amber); background: color-mix(in srgb, var(--color-amber) 10%, transparent); }
+.score-status-badge.is-high { color: var(--color-emerald); background: color-mix(in srgb, var(--color-emerald) 10%, transparent); }
 .score-card-provisional {
   overflow: hidden;
   color: var(--muted-foreground);
@@ -3285,12 +3302,15 @@ input:focus-visible,
   padding-top: 14px;
 }
 
+.score-explanation { display: flex; flex-direction: column; gap: 3px; padding-bottom: 2px; }
+.score-explanation strong { color: var(--foreground); font-size: 13px; font-weight: 500; }
+.score-explanation p { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.5; }
 .score-contribution { display: flex; flex-direction: column; gap: 6px; }
-.score-contribution-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.score-contribution-label { min-width: 0; overflow: hidden; color: var(--foreground); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.score-contribution-figures { display: flex; flex: 0 0 auto; gap: 10px; color: var(--muted-foreground); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
-.score-contribution-z { color: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground)); }
-.score-contribution-points { color: var(--foreground); }
+.score-contribution-row { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.score-contribution-label { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.score-contribution-label strong { overflow: hidden; color: var(--foreground); font-size: 13px; font-weight: 450; text-overflow: ellipsis; white-space: nowrap; }
+.score-contribution-label small { color: var(--muted-foreground); font-size: 11px; }
+.score-contribution-points { flex: 0 0 auto; color: var(--foreground); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
 .score-contribution-track { position: relative; height: 6px; border-radius: 999px; background: var(--muted); }
 .score-contribution-fill { position: absolute; inset: 0 auto 0 0; min-width: 2px; border-radius: inherit; }
 
@@ -3298,6 +3318,10 @@ input:focus-visible,
 
 @media (max-width: 1180px) {
   .score-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1181px) {
+  .assistant-open .score-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {

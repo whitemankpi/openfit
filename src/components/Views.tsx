@@ -380,37 +380,45 @@ const SCORE_META: Record<ScoreKey, { title: string; category: HomeCategory; icon
 const SCORE_ORDER: ScoreKey[] = ['recovery', 'load', 'sleepQuality']
 
 function scoreStatusCopy(status: ScoreStatus) {
-  if (status === 'low') return 'Lower'
-  if (status === 'high') return 'Higher'
+  if (status === 'low') return 'Low'
+  if (status === 'high') return 'High'
   return 'Typical'
 }
 
-function scoreStatusSentence(status: ScoreStatus) {
-  if (status === 'low') return 'Lower than usual for you'
-  if (status === 'high') return 'Higher than usual for you'
-  return 'Typical for you'
+function scoreMeaning(key: ScoreKey, status: ScoreStatus) {
+  if (key === 'recovery') {
+    if (status === 'low') return 'Your body signals suggest an easier day.'
+    if (status === 'high') return 'Your body signals look favorable for activity.'
+    return 'Your recovery signals are close to your normal range.'
+  }
+  if (key === 'load') {
+    if (status === 'low') return 'A light cardiovascular load compared with your recent hard days.'
+    if (status === 'high') return 'A high cardiovascular load compared with your recent hard days.'
+    return 'A moderate cardiovascular load for you.'
+  }
+  if (status === 'low') return 'Your sleep was less restorative than your usual night.'
+  if (status === 'high') return 'Your sleep was more restorative than your usual night.'
+  return 'Your sleep was close to your usual quality.'
 }
 
-/** e.g. +1.2σ / −0.4σ; null when the factor has no personal baseline to deviate from. */
-function formatZScore(z: number | null) {
-  if (z === null) return null
-  const rounded = (Math.round(Math.abs(z) * 10) / 10).toFixed(1)
-  return `${z < 0 ? '−' : '+'}${rounded}σ`
+function deviationCopy(z: number | null) {
+  if (z === null) return 'Based on today’s value'
+  if (z <= -1) return 'Well below your usual'
+  if (z < -0.35) return 'Below your usual'
+  if (z < 0.35) return 'Near your usual'
+  if (z < 1) return 'Above your usual'
+  return 'Well above your usual'
 }
 
 function ScoreContributionRow({ contribution, color }: { contribution: ScoreContribution; color: string }) {
-  const ceiling = Math.max(contribution.weight * 100, Math.abs(contribution.points), 1)
+  const maximumPoints = Math.round(contribution.weight * 100)
+  const ceiling = Math.max(maximumPoints, Math.abs(contribution.points), 1)
   const fillPercent = Math.min(100, Math.max(0, (contribution.points / ceiling) * 100))
-  const z = formatZScore(contribution.z)
   return (
     <div className="score-contribution">
       <div className="score-contribution-row">
-        <span className="score-contribution-label">{contribution.label}</span>
-        <span className="score-contribution-figures">
-          {z && <span className="score-contribution-z">{z}</span>}
-          <span>{Math.round(contribution.weight * 100)}% weight</span>
-          <span className="score-contribution-points">{contribution.points} pt{Math.abs(contribution.points) === 1 ? '' : 's'}</span>
-        </span>
+        <span className="score-contribution-label"><strong>{contribution.label}</strong><small>{deviationCopy(contribution.z)}</small></span>
+        <span className="score-contribution-points">{contribution.points} of {maximumPoints}</span>
       </div>
       <div className="score-contribution-track">
         <span className="score-contribution-fill" style={{ width: `${fillPercent}%`, background: color }} />
@@ -438,11 +446,12 @@ function ScoreCard({ result, expanded, onToggle }: { result: ScoreResult; expand
           </div>
         ) : (
           <div className="score-card-lead">
-            <RadialProgress value={result.value} color={color} label={scoreStatusCopy(result.status)} valueLabel={String(result.value)} size={84} />
+            <RadialProgress value={result.value} color={color} label="of 100" valueLabel={String(result.value)} size={84} />
             <div className="score-card-status">
-              <strong>{scoreStatusSentence(result.status)}</strong>
+              <span className={cn('score-status-badge', `is-${result.status}`)}>{scoreStatusCopy(result.status)}</span>
+              <strong>{scoreMeaning(result.key, result.status)}</strong>
               {result.confidence === 'building' && (
-                <span className="score-card-provisional">Provisional · {result.baselineDays}/{SETTLED_BASELINE_DAYS} days of baseline</span>
+                <span className="score-card-provisional">Still learning your normal · {result.baselineDays} of {SETTLED_BASELINE_DAYS} baseline days</span>
               )}
             </div>
           </div>
@@ -450,6 +459,10 @@ function ScoreCard({ result, expanded, onToggle }: { result: ScoreResult; expand
       </button>
       {expanded && (
         <div id={contentId} className="score-card-expansion">
+          <div className="score-explanation">
+            <strong>What shaped this score</strong>
+            <p>Each row shows how many points today’s reading added. “9 of 35” means this factor could contribute up to 35 points.</p>
+          </div>
           {result.contributions.map((contribution) => (
             <ScoreContributionRow key={contribution.key} contribution={contribution} color={color} />
           ))}
@@ -472,7 +485,7 @@ function ScoresSection({ scores }: { scores: Scores }) {
   return (
     <HomeSection id="scores" title="Today's scores">
       <p className="score-section-note">
-        OpenFit's own local derivations from your measurements — not a Google or Fitbit score. Expand a card to see the formula behind the number.
+        A personal 0–100 summary calculated by OpenFit from your recent measurements. It is not a medical rating or a Google/Fitbit score. Open a card to see what influenced it.
       </p>
       {allInsufficient ? (
         <Panel className="score-building-note" category="recovery">
