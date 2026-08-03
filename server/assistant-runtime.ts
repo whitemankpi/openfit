@@ -8,6 +8,7 @@ import { normalizeFitbitData } from '../src/data/normalize.js'
 import { buildAssistantManifest } from '../src/lib/assistant-manifest.js'
 import { ASSISTANT_TOOLS, runTool, type ToolContext } from '../src/lib/assistant-tools.js'
 import { addMemory, relevantMemory, validateMemoryEntry, type MemoryEntry } from '../src/lib/assistant-memory.js'
+import { parseInsightContent } from './assistant-report.js'
 import type { AssistantInsightReport, PageId, RawHealthArchive } from '../src/types.js'
 
 const require = createRequire(import.meta.url)
@@ -122,8 +123,8 @@ export class HostedAssistantRuntime {
     await this.#interactive?.cancel()
   }
 
-  async generateInsight(kind: 'daily' | 'weekly', now = new Date()): Promise<AssistantInsightReport | null> {
-    if (this.#busy) return null
+  async generateInsight(kind: 'daily' | 'weekly', now = new Date(), options: { force?: boolean } = {}): Promise<AssistantInsightReport | null> {
+    if (this.#busy) throw new Error('The assistant is busy. Try again in a moment.')
     const context = this.#context(undefined, 'today')
     const endDate = context.data.selectedDate
     const startDate = dateShift(endDate, kind === 'daily' ? -6 : -27)
@@ -131,22 +132,32 @@ export class HostedAssistantRuntime {
       start: startDate, end: endDate,
       metrics: ['sleepMinutes', 'sleepEfficiency', 'hrvMs', 'restingHeartRate', 'steps', 'activeMinutes'],
     }).filter((entry) => entry.kind === 'episode' || entry.kind === 'conclusion')
-    const evidence = JSON.stringify({ kind, startDate, endDate, manifest: JSON.parse(context.manifest), memory: memory.map(({ kind: memoryKind, text }) => ({ kind: memoryKind, text })) })
+    const coaching = runTool('coaching_snapshot', { kind, end: endDate }, context.toolContext)
+    const evidence = JSON.stringify({ kind, startDate, endDate, coaching, manifest: JSON.parse(context.manifest), memory: memory.map(({ kind: memoryKind, text }) => ({ kind: memoryKind, text })) })
     const hash = fingerprint(evidence)
-    if (this.reports().some((report) => report.kind === kind && report.fingerprint === hash)) return null
+    if (!options.force && this.reports().some((report) => report.kind === kind && report.fingerprint === hash)) return null
     const prompt = kind === 'daily'
-      ? `Create today's concise health briefing for ${endDate}. Check data coverage, sleep/recovery and yesterday's load. Mention only material signals. End with one practical, non-medical action. Use at most 4 OpenFit tool calls.`
-      : `Create a concise weekly performance review ending ${endDate}. Compare the last 7 days with the previous 7 and personal baseline, check coverage, and mention only supported patterns. End with one practical, non-medical action. Use at most 6 OpenFit tool calls.`
-    const client = this.#client(`${BASE_INSTRUCTIONS} This is an automated ${kind} report. Do not ask questions. Keep the final answer under 1200 characters.`)
+      ? `Create a decision-oriented daily outlook for ${endDate} from COACHING evidence. Identify what is meaningfully different from this person's normal, what may connect across metrics or remembered context, and one realistic action for today.`
+      : `Create a decision-oriented weekly pattern review ending ${endDate} from COACHING evidence. Compare the latest 7 days with the prior 7, identify at most two material patterns, and choose one experiment or habit for next week.`
+    const reportInstructions = [
+      BASE_INSTRUCTIONS,
+      `This is an automated ${kind} report. The COACHING object is already ranked evidence; use it before requesting any extra tool.`,
+      'Do not repeat a dashboard, score formula, weights, points, or a list of raw metrics. Do not mention absent data unless it prevents the main conclusion.',
+      'Prefer a pattern, change, or supported relationship the user could not see from one number. State sample sizes in compact evidence. Never imply correlation proves cause.',
+      'If no material change cleared the threshold, say the pattern is stable and recommend maintaining one useful routine; do not manufacture concern.',
+      'Return ONLY valid JSON with this exact shape: {"headline":"short conclusion","summary":"why it matters in 1-2 sentences","signals":[{"label":"short label","finding":"interpreted pattern","evidence":"comparison with dates or n","tone":"positive|watch|neutral"}],"action":{"title":"specific action title","detail":"one realistic non-medical action and why"},"question":"optional single context question to improve future insight, or empty string"}. Use 1-2 signals, never more than 3.',
+    ].join(' ')
+    const client = this.#client(reportInstructions)
     this.#busy = true
     let toolCalls = 0
     try {
-      const text = await this.#toolLoop(client, prompt, evidence, context.toolContext, kind === 'daily' ? 4 : 6, undefined, () => { toolCalls += 1 })
+      const text = await this.#toolLoop(client, prompt, evidence, context.toolContext, kind === 'daily' ? 1 : 2, undefined, () => { toolCalls += 1 })
       if (!text.trim()) return null
+      const content = parseInsightContent(text)
       const report: AssistantInsightReport = {
         id: crypto.randomUUID(), kind, generatedAt: now.toISOString(), startDate, endDate,
-        title: kind === 'daily' ? `Daily briefing · ${endDate}` : `Weekly review · ${endDate}`,
-        body: text.trim().slice(0, 2400), fingerprint: hash, toolCalls,
+        title: kind === 'daily' ? `Daily outlook · ${endDate}` : `Weekly pattern review · ${endDate}`,
+        ...content, fingerprint: hash, toolCalls,
       }
       this.#store.write('assistant-insights.json', [...this.reports(), report].slice(-90))
       return report

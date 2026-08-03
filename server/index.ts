@@ -48,6 +48,7 @@ let syncInFlight: Promise<SyncResult> | null = null
 let backfillInFlight: Promise<void> | null = null
 let oauth: { state: string; verifier: string; createdAt: number; purpose: 'health' | 'google-fit' } | null = null
 let oauthResult: { sequence: number; ok: boolean; error?: string } = { sequence: 0, ok: false }
+let insightRun: { jobId: string; kind: 'daily' | 'weekly' } | null = null
 const eventClients = new Set<ServerResponse>()
 
 function requiredEnv(name: string): string {
@@ -397,7 +398,18 @@ async function api(request: IncomingMessage, response: ServerResponse, url: URL)
   if (request.method === 'POST' && url.pathname === '/api/assistant/insights/run') {
     const kind = String((await body(request)).kind)
     if (kind !== 'daily' && kind !== 'weekly') throw new Error('Insight kind must be daily or weekly.')
-    return json(response, 200, await assistant.generateInsight(kind)), true
+    if (insightRun) return json(response, 202, { ...insightRun, running: true }), true
+    const job = { jobId: crypto.randomUUID(), kind: kind as 'daily' | 'weekly' }
+    insightRun = job
+    broadcastAssistantEvent({ type: 'insight', phase: 'started', ...job })
+    void assistant.generateInsight(kind, new Date(), { force: true }).then((report) => {
+      broadcastAssistantEvent({ type: 'insight', phase: 'complete', ...job, report })
+    }).catch((error) => {
+      broadcastAssistantEvent({ type: 'insight', phase: 'error', ...job, message: error instanceof Error ? error.message : 'Insight generation failed.' })
+    }).finally(() => {
+      if (insightRun?.jobId === job.jobId) insightRun = null
+    })
+    return json(response, 202, { ...job, running: true }), true
   }
   if (request.method === 'POST' && url.pathname === '/api/config') {
     const value = credentials()

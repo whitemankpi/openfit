@@ -325,6 +325,16 @@ export interface AssistantInsightReport {
   endDate: string
   title: string
   body: string
+  headline?: string
+  summary?: string
+  signals?: Array<{
+    label: string
+    finding: string
+    evidence: string
+    tone: 'positive' | 'watch' | 'neutral'
+  }>
+  action?: { title: string; detail: string }
+  question?: string | null
   fingerprint: string
   toolCalls: number
 }
@@ -345,6 +355,9 @@ export type HealthAssistantEvent =
   | { requestId: string; type: 'error'; message: string }
   | { requestId: string; type: 'cancelled' }
   | { requestId: string; type: 'tool'; name: string; ok: boolean }
+  | { type: 'insight'; phase: 'started'; jobId: string; kind: 'daily' | 'weekly' }
+  | { type: 'insight'; phase: 'complete'; jobId: string; kind: 'daily' | 'weekly'; report: AssistantInsightReport | null }
+  | { type: 'insight'; phase: 'error'; jobId: string; kind: 'daily' | 'weekly'; message: string }
 
 export interface HealthAssistantBridge {
   getStatus: () => Promise<HealthAssistantStatus>
@@ -366,5 +379,5 @@ export interface HealthAssistantBridge {
   addMemory?: (input: Omit<AssistantMemoryEntry, 'id' | 'createdAt'>) => Promise<AssistantMemoryEntry[]>
   deleteMemory?: (id: string) => Promise<AssistantMemoryEntry[]>
   getInsights?: () => Promise<AssistantInsightReport[]>
-  runInsight?: (kind: 'daily' | 'weekly') => Promise<AssistantInsightReport | null>
+  runInsight?: (kind: 'daily' | 'weekly') => Promise<{ jobId: string; kind: 'daily' | 'weekly'; running: boolean }>
 }

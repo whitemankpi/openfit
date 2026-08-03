@@ -107,7 +107,7 @@ const bridge: FitbitBridge = {
     ensureDataEvents()
     return () => {
       dataListeners.delete(callback)
-      if (!dataListeners.size && dataEvents) {
+      if (!dataListeners.size && !assistantListeners.size && dataEvents) {
         dataEvents.close()
         dataEvents = null
       }
@@ -134,7 +134,13 @@ const assistantBridge: HealthAssistantBridge = {
   onEvent: (callback) => {
     assistantListeners.add(callback)
     ensureDataEvents()
-    return () => assistantListeners.delete(callback)
+    return () => {
+      assistantListeners.delete(callback)
+      if (!dataListeners.size && !assistantListeners.size && dataEvents) {
+        dataEvents.close()
+        dataEvents = null
+      }
+    }
   },
   respondToTool: async () => undefined,
   onToolRequest: () => () => undefined,

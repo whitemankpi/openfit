@@ -18,12 +18,24 @@ compact manifest, user-approved relevant memory, and read-only aggregate tools.
 It never receives the raw archive and never performs statistics from remembered
 numbers.
 
-Daily reports use at most four tool calls and focus on recent sleep, recovery,
-prior-day load, and coverage. Weekly reports use at most six calls and compare
-the last seven days with the prior seven and longer personal baselines. Each
+Each run starts with a deterministic coaching snapshot: the strongest material
+changes against the wearer's baseline plus statistically supported relationships
+between metrics. Daily reports may make one additional tool call; weekly reports
+may make two. Each
 scheduled run gets a fresh ephemeral thread and an output limit in its developer
 instructions. Identical evidence is fingerprinted so it cannot create duplicate
 reports.
+
+The model returns a small structured report rather than a score explanation:
+a plain-language headline, up to three meaningful signals, one practical action,
+and one optional question that could improve future interpretation. Weights,
+points, exhaustive metric lists, and missing sensors are excluded unless missing
+data genuinely prevents a conclusion.
+
+Manual runs are asynchronous. The API acknowledges the job immediately and the
+UI receives started, completed, or failed state over the existing event stream,
+so a long model response cannot leave the browser waiting for a proxy timeout.
+Manual runs intentionally bypass report deduplication; scheduled runs do not.
 
 ## Memory boundaries
 

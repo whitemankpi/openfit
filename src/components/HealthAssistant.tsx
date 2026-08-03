@@ -10,7 +10,7 @@ import {
   type ChatModelAdapter,
   type ThreadMessage,
 } from '@assistant-ui/react'
-import { ArrowDown, ArrowUp, Plus, Sparkles, Square, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, LoaderCircle, Plus, Sparkles, Square, X } from 'lucide-react'
 import type { History } from '@/data/history'
 import {
   parseAssistantNavigation,
@@ -103,6 +103,8 @@ export function HealthAssistant({
   const statusRef = useRef(status)
   const [toolActivity, setToolActivity] = useState<string[]>([])
   const [insightReports, setInsightReports] = useState<AssistantInsightReport[]>([])
+  const [insightRun, setInsightRun] = useState<{ jobId: string; kind: 'daily' | 'weekly' } | null>(null)
+  const [insightError, setInsightError] = useState<string | null>(null)
   const [memoryEntries, setMemoryEntries] = useState<AssistantMemoryEntry[]>([])
 
   useEffect(() => { dataRef.current = data }, [data])
@@ -142,6 +144,20 @@ export function HealthAssistant({
   }, [])
 
   useEffect(() => { void refreshStatus() }, [refreshStatus])
+  useEffect(() => window.healthAssistant?.onEvent((event) => {
+    if (event.type !== 'insight') return
+    if (event.phase === 'started') {
+      setInsightRun({ jobId: event.jobId, kind: event.kind })
+      setInsightError(null)
+    } else if (event.phase === 'complete') {
+      setInsightRun((current) => current?.jobId === event.jobId ? null : current)
+      if (event.report) setInsightReports((reports) => [...reports.filter((report) => report.id !== event.report?.id), event.report as AssistantInsightReport])
+      else void window.healthAssistant?.getInsights?.().then(setInsightReports).catch(() => undefined)
+    } else {
+      setInsightRun((current) => current?.jobId === event.jobId ? null : current)
+      setInsightError(event.message)
+    }
+  }), [])
   useEffect(() => {
     if (open) {
       void refreshStatus()
@@ -167,7 +183,7 @@ export function HealthAssistant({
 
       setToolActivity([])
       const unsubscribe = bridge.onEvent((event) => {
-        if (event.requestId === requestId) queue.push(event)
+        if ('requestId' in event && event.requestId === requestId) queue.push(event)
       })
       const onAbort = () => queue.push({ requestId, type: 'cancelled' })
       abortSignal.addEventListener('abort', onAbort, { once: true })
@@ -237,7 +253,7 @@ export function HealthAssistant({
           onClose={() => onOpenChange(false)}
           onStatusRefresh={refreshStatus}
         />
-        <AssistantThread ready={ready} toolActivity={toolActivity} status={status} insightReports={insightReports} onReportsChange={setInsightReports} memoryEntries={memoryEntries} onMemoryChange={setMemoryEntries} />
+        <AssistantThread ready={ready} toolActivity={toolActivity} status={status} insightReports={insightReports} insightRun={insightRun} insightError={insightError} onInsightRunChange={setInsightRun} onInsightError={setInsightError} memoryEntries={memoryEntries} onMemoryChange={setMemoryEntries} />
       </aside>
       {open && <button className="assistant-scrim" aria-label="Close health assistant" onClick={() => onOpenChange(false)} />}
     </AssistantRuntimeProvider>
@@ -290,7 +306,10 @@ function AssistantThread({
   toolActivity,
   status,
   insightReports,
-  onReportsChange,
+  insightRun,
+  insightError,
+  onInsightRunChange,
+  onInsightError,
   memoryEntries,
   onMemoryChange,
 }: {
@@ -298,7 +317,10 @@ function AssistantThread({
   toolActivity: string[]
   status: HealthAssistantStatus
   insightReports: AssistantInsightReport[]
-  onReportsChange: (reports: AssistantInsightReport[]) => void
+  insightRun: { jobId: string; kind: 'daily' | 'weekly' } | null
+  insightError: string | null
+  onInsightRunChange: (run: { jobId: string; kind: 'daily' | 'weekly' } | null) => void
+  onInsightError: (message: string | null) => void
   memoryEntries: AssistantMemoryEntry[]
   onMemoryChange: (entries: AssistantMemoryEntry[]) => void
 }) {
@@ -314,9 +336,16 @@ function AssistantThread({
     conclusion: 'Previous insight',
   })[kind]
   const runInsight = async (kind: 'daily' | 'weekly') => {
-    await window.healthAssistant?.runInsight?.(kind)
-    const reports = await window.healthAssistant?.getInsights?.()
-    if (reports) onReportsChange(reports)
+    if (insightRun) return
+    onInsightError(null)
+    onInsightRunChange({ jobId: 'starting', kind })
+    try {
+      const run = await window.healthAssistant?.runInsight?.(kind)
+      if (run) onInsightRunChange({ jobId: run.jobId, kind: run.kind })
+    } catch (error) {
+      onInsightRunChange(null)
+      onInsightError(error instanceof Error ? error.message : 'Could not generate the report.')
+    }
   }
   const saveMemory = async () => {
     const text = memoryText.trim()
@@ -344,13 +373,24 @@ function AssistantThread({
             {window.healthAssistant?.getInsights && (
               <div className="assistant-insight-reports">
                 <div className="assistant-insight-actions">
-                  <button type="button" onClick={() => void runInsight('daily')}>Generate daily briefing</button>
-                  <button type="button" onClick={() => void runInsight('weekly')}>Generate weekly review</button>
+                  <button type="button" disabled={Boolean(insightRun)} onClick={() => void runInsight('daily')}>{insightRun?.kind === 'daily' && <LoaderCircle className="spin" />}<span>{insightRun?.kind === 'daily' ? 'Building outlook…' : 'Daily outlook'}</span></button>
+                  <button type="button" disabled={Boolean(insightRun)} onClick={() => void runInsight('weekly')}>{insightRun?.kind === 'weekly' && <LoaderCircle className="spin" />}<span>{insightRun?.kind === 'weekly' ? 'Finding patterns…' : 'Weekly patterns'}</span></button>
                 </div>
-                {insightReports.slice(-3).reverse().map((report) => (
-                  <article key={report.id}>
-                    <strong>{report.title}</strong>
-                    <p>{report.body}</p>
+                {insightRun && <p className="assistant-insight-progress">Codex is comparing your personal ranges and recent patterns. You can keep using OpenFit while this runs.</p>}
+                {insightError && <p className="assistant-insight-error" role="alert">{insightError}</p>}
+                {insightReports.slice(-2).reverse().map((report) => (
+                  <article className="assistant-insight-card" key={report.id}>
+                    <header><span>{report.kind === 'daily' ? 'Daily outlook' : 'Weekly patterns'}</span><time>{report.endDate}</time></header>
+                    <h3>{report.headline || report.title}</h3>
+                    {report.summary && <p className="assistant-insight-summary">{report.summary}</p>}
+                    {report.signals?.map((signal) => (
+                      <div className={`assistant-insight-signal is-${signal.tone}`} key={`${report.id}-${signal.label}`}>
+                        <strong>{signal.label}</strong><p>{signal.finding}</p><small>{signal.evidence}</small>
+                      </div>
+                    ))}
+                    {report.action && <div className="assistant-insight-action"><strong>{report.action.title}</strong><p>{report.action.detail}</p></div>}
+                    {report.question && <p className="assistant-insight-question"><strong>Help me learn:</strong> {report.question}</p>}
+                    {!report.summary && <p>{report.body}</p>}
                   </article>
                 ))}
               </div>

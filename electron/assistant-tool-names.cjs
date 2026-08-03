@@ -9,7 +9,7 @@
 // text. Trusting renderer-supplied input.toolNames as the allowlist would
 // mean the allowlist is only as closed as whatever the renderer happened to
 // send, which defeats the point of an allowlist checked in main. This list
-// is main's own knowledge of the six tools that exist, kept independent of
+// is main's own knowledge of the eight tools that exist, kept independent of
 // the renderer's message.
 //
 // This is the CommonJS twin of TOOL_NAMES in src/lib/assistant-tools.ts,
@@ -18,6 +18,7 @@
 // electron/assistant-tool-names.test.ts, which asserts this exact array
 // equals TOOL_NAMES — a change to one without the other fails that test.
 const KNOWN_TOOL_NAMES = [
+  'coaching_snapshot',
   'metric_window',
   'explain_score',
   'data_coverage',

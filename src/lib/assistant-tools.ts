@@ -1,6 +1,6 @@
 import type { DashboardData, TrendPoint } from '../types.js'
 import type { History } from '../data/history.js'
-import { robustBaseline } from './home-analysis.js'
+import { robustBaseline, robustZScore } from './home-analysis.js'
 import { computeScores, type ScoreKey } from './scores.js'
 import { weekdayMedians, spearman } from './analytics.js'
 import { relevantMemory, type MemoryEntry } from './assistant-memory.js'
@@ -52,6 +52,16 @@ const METRICS: Record<string, (point: TrendPoint) => number | null> = {
   caloriesIn: (point) => point.caloriesIn,
 }
 
+const COACHING_METRICS = [
+  { metric: 'sleepMinutes', label: 'Sleep duration', unit: 'min', threshold: 5, better: 'higher' },
+  { metric: 'sleepEfficiency', label: 'Sleep efficiency', unit: '%', threshold: 3, better: 'higher' },
+  { metric: 'hrvMs', label: 'HRV', unit: 'ms', threshold: 8, better: 'higher' },
+  { metric: 'restingHeartRate', label: 'Resting heart rate', unit: 'bpm', threshold: 3, better: 'lower' },
+  { metric: 'breathingRate', label: 'Breathing rate', unit: 'breaths/min', threshold: 4, better: 'stable' },
+  { metric: 'steps', label: 'Steps', unit: 'steps', threshold: 12, better: 'context' },
+  { metric: 'activeMinutes', label: 'Active minutes', unit: 'min', threshold: 12, better: 'context' },
+] as const
+
 export const METRIC_KEYS = Object.keys(METRICS)
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -84,6 +94,16 @@ function seriesFor(context: ToolContext, metric: string, start: string, end: str
 
 function finite(values: Array<number | null>) {
   return values.filter((value): value is number => value !== null && Number.isFinite(value))
+}
+
+function rounded(value: number | null, digits = 1) {
+  if (value === null || !Number.isFinite(value)) return null
+  const scale = 10 ** digits
+  return Math.round(value * scale) / scale
+}
+
+function medianOf(values: Array<number | null>) {
+  return robustBaseline(values).center
 }
 
 /** Least-squares slope expressed in metric units per seven days. */
@@ -347,6 +367,99 @@ const correlate: ToolDefinition = {
   },
 }
 
+const coachingSnapshot: ToolDefinition = {
+  name: 'coaching_snapshot',
+  description: 'Produce a compact, ranked coaching snapshot of material personal changes and supported cross-metric patterns. Prefer this over listing raw metrics in a briefing.',
+  schema: {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: ['daily', 'weekly'] },
+      end: { type: 'string', description: 'YYYY-MM-DD' },
+    },
+    required: ['kind', 'end'],
+  },
+  run: (args, context) => {
+    const kind = String(args.kind || '')
+    const end = String(args.end || '')
+    if ((kind !== 'daily' && kind !== 'weekly') || !ISO_DATE.test(end)) return toolError('kind must be daily or weekly and end must be YYYY-MM-DD.')
+
+    const changes: Array<Record<string, unknown> & { magnitude: number | null }> = []
+    for (const definition of COACHING_METRICS) {
+      if (kind === 'daily') {
+        const current = seriesFor(context, definition.metric, end, end)[0]?.value ?? null
+        const baselineStart = shiftIso(end, -28)
+        const baselineEnd = shiftIso(end, -1)
+        const baseline = robustBaseline(seriesFor(context, definition.metric, baselineStart, baselineEnd).map((point) => point.value))
+        if (current === null || baseline.center === null || baseline.sampleCount < 5) continue
+        const delta = current - baseline.center
+        const percent = baseline.center === 0 ? null : delta / baseline.center * 100
+        const z = robustZScore(current, baseline)
+        const magnitude = z === null ? Math.abs(percent || 0) / Math.max(definition.threshold, 1) : Math.abs(z)
+        if ((z !== null && Math.abs(z) < 0.5) || (z === null && Math.abs(percent || 0) < definition.threshold)) continue
+        changes.push({
+          metric: definition.metric, label: definition.label, unit: definition.unit,
+          current: rounded(current), usual: rounded(baseline.center), delta: rounded(delta), percentChange: rounded(percent),
+          deviation: rounded(z), baselineN: baseline.sampleCount, magnitude: rounded(magnitude, 2), better: definition.better,
+        })
+        continue
+      }
+
+      const recentStart = shiftIso(end, -6)
+      const priorEnd = shiftIso(end, -7)
+      const priorStart = shiftIso(end, -13)
+      const recentValues = seriesFor(context, definition.metric, recentStart, end).map((point) => point.value)
+      const priorValues = seriesFor(context, definition.metric, priorStart, priorEnd).map((point) => point.value)
+      const recent = medianOf(recentValues)
+      const prior = medianOf(priorValues)
+      const recentN = finite(recentValues).length
+      const priorN = finite(priorValues).length
+      if (recent === null || prior === null || recentN < 3 || priorN < 3) continue
+      const delta = recent - prior
+      const percent = prior === 0 ? null : delta / prior * 100
+      if (Math.abs(percent || 0) < definition.threshold) continue
+      changes.push({
+        metric: definition.metric, label: definition.label, unit: definition.unit,
+        recentMedian: rounded(recent), priorMedian: rounded(prior), delta: rounded(delta), percentChange: rounded(percent),
+        recentN, priorN, magnitude: rounded(Math.abs(percent || 0) / Math.max(definition.threshold, 1), 2), better: definition.better,
+      })
+    }
+    changes.sort((left, right) => (right.magnitude || 0) - (left.magnitude || 0)).splice(5)
+
+    const correlationStart = shiftIso(end, -59)
+    const byDate = new Map(context.history.days.map((day) => [day.date, day.trend]))
+    const relationships = [
+      { first: 'sleepMinutes', second: 'hrvMs', lagDays: 1, label: 'sleep duration → next-day HRV' },
+      { first: 'sleepMinutes', second: 'restingHeartRate', lagDays: 1, label: 'sleep duration → next-day resting heart rate' },
+      { first: 'activeMinutes', second: 'sleepMinutes', lagDays: 0, label: 'active minutes ↔ same-night sleep duration' },
+    ].flatMap((candidate) => {
+      const left = METRICS[candidate.first]!
+      const right = METRICS[candidate.second]!
+      const pairs: Array<[number, number]> = []
+      for (const day of context.history.days) {
+        if (day.date < correlationStart || day.date > end) continue
+        const partner = byDate.get(shiftIso(day.date, candidate.lagDays))
+        const a = left(day.trend)
+        const b = partner ? right(partner) : null
+        if (a !== null && b !== null && Number.isFinite(a) && Number.isFinite(b)) pairs.push([a, b])
+      }
+      const result = spearman(pairs)
+      if (!result.significant || result.rho === null || result.n < 10 || Math.abs(result.rho) < 0.35) return []
+      return [{ ...candidate, rho: rounded(result.rho, 2), n: result.n, note: 'Association only; not proof of cause.' }]
+    }).sort((left, right) => Math.abs(right.rho || 0) - Math.abs(left.rho || 0)).slice(0, 2)
+
+    return {
+      kind,
+      end,
+      changes,
+      relationships,
+      stable: changes.length === 0,
+      instruction: changes.length
+        ? 'Lead with the most meaningful change. Use at most two changes and one supported relationship.'
+        : 'No material change cleared the evidence threshold. Say that plainly and avoid inventing a concern.',
+    }
+  },
+}
+
 const recall: ToolDefinition = {
   name: 'recall',
   description: 'Recall user-approved episodes or conclusions relevant to an optional date range or metric.',
@@ -374,6 +487,7 @@ const recall: ToolDefinition = {
 }
 
 export const ASSISTANT_TOOLS: ToolDefinition[] = [
+  coachingSnapshot,
   metricWindow,
   explainScore,
   dataCoverage,

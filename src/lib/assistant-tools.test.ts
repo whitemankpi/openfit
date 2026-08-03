@@ -61,6 +61,23 @@ describe('metric_window', () => {
   })
 })
 
+describe('coaching_snapshot', () => {
+  it('returns ranked material changes without listing missing metrics', () => {
+    const result = runTool('coaching_snapshot', { kind: 'weekly', end: SELECTED }, context()) as {
+      changes: Array<{ metric: string; recentN: number; priorN: number; magnitude: number }>
+      relationships: Array<{ rho: number; n: number }>
+      stable: boolean
+      missing?: string[]
+    }
+
+    expect(result.missing).toBeUndefined()
+    expect(result.changes.length).toBeLessThanOrEqual(5)
+    expect(result.changes.every((entry) => entry.recentN >= 3 && entry.priorN >= 3)).toBe(true)
+    expect(result.changes.map((entry) => entry.magnitude)).toEqual([...result.changes.map((entry) => entry.magnitude)].sort((a, b) => b - a))
+    expect(result.relationships.every((entry) => entry.n >= 10 && Math.abs(entry.rho) >= 0.35)).toBe(true)
+  })
+})
+
 describe('explain_score', () => {
   it('returns the same breakdown the interface shows', () => {
     const result = runTool('explain_score', { score: 'recovery' }, context()) as {
